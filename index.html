@@ -57,8 +57,6 @@
   #panelHandle .grab{width:44px; height:5px; border-radius:3px; background:var(--line)}
   .prow{display:flex; align-items:center; gap:10px; margin-bottom:10px}
   .phead{justify-content:space-between}
-  #posName{font-size:16px; font-weight:700}
-  #posLL{font-size:12px; color:var(--sub); margin-top:2px}
   .btn{padding:8px 12px; border-radius:10px; border:1px solid var(--line); background:var(--panel2); color:var(--text); font-size:13px; white-space:nowrap}
   .stats{display:grid; grid-template-columns:repeat(4,1fr); gap:6px}
   .stat{background:var(--panel2); border-radius:10px; padding:7px 6px; text-align:center}
@@ -116,11 +114,7 @@
 
 <section id="panel">
   <div id="panelHandle"><span class="grab"></span><span id="panelHandleTxt">▼ 隠す</span><span class="grab"></span></div>
-  <div class="prow phead">
-    <div>
-      <div id="posName">伊勢湾・鳥羽沖</div>
-      <div id="posLL">北緯 -- / 東経 --</div>
-    </div>
+  <div class="prow phead" style="justify-content:flex-end">
     <button class="btn" id="btnReset">エリアに戻す</button>
   </div>
 
@@ -324,7 +318,7 @@ let map = null, seamarkLayer = null, boatMarker = null, badgeMarkers = [];
 let canvas = null, ctx = null;
 function initMap(){
   map = L.map('map', { zoomControl:false, attributionControl:false, doubleClickZoom:false })
-        .setView([34.05, 136.55], 8);
+        .setView([state.boat.lat, state.boat.lon], 9);
   L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom:19 }).addTo(map);
   seamarkLayer = L.tileLayer('https://tiles.openseamap.org/seamark/{z}/{x}/{y}.png', { maxZoom:18, opacity:0.95 });
   seamarkLayer.addTo(map);   // 海図情報は既定で ON
@@ -383,6 +377,7 @@ function moveBoat(lat, lon, name){
   state.boat = { lat, lon };
   state.posName = name || 'タップした地点';
   if (boatMarker) boatMarker.setLatLng([lat, lon]);
+  if (map) map.flyTo([lat, lon], map.getZoom(), { duration:0.6 });   // 船の位置が中心に来るよう地図も移動
   const ai = AREAS.findIndex(a=>Math.abs(a.lat-lat) < 1e-6 && Math.abs(a.lon-lon) < 1e-6);
   if (ai >= 0) state.area = ai;   // リセット先は最後に選んだエリア
   renderPanel();
@@ -434,8 +429,6 @@ function renderPanel(){
   const wave = sampleScalar(b.lat, b.lon, i, 'wave');
   const gust = sampleScalar(b.lat, b.lon, i, 'gust');
 
-  document.getElementById('posName').textContent = state.posName;
-  document.getElementById('posLL').textContent = `北緯 ${b.lat.toFixed(3)}° / 東経 ${b.lon.toFixed(3)}°`;
   document.getElementById('stWind').innerHTML  = `${windMs.toFixed(1)}<small> m/s</small><br><small>${dirName(windFrom)}の風・突風 ${gust.toFixed(1)}</small>`;
   document.getElementById('stCur').innerHTML   = `${curSpd.toFixed(2)}<small> kt</small><br><small>${dirName(curDir)}へ流れる</small>`;
   document.getElementById('stDrift').innerHTML = `${driftSpd.toFixed(2)}<small> kt</small><br><small>${dirName(driftDir)}へ流れる</small>`;
