@@ -78,10 +78,11 @@
   .seg{display:flex; background:var(--panel2); border:1px solid var(--line); border-radius:10px; overflow:hidden}
   .seg button{padding:7px 13px; border:none; background:transparent; color:var(--sub); font-size:13px}
   .seg button.on{background:var(--accent); color:#231600; font-weight:700}
-  /* 色スケール */
-  .scaleWrap{flex:1}
-  .scaleBar{height:8px; border-radius:4px; background:linear-gradient(90deg,#3a7bd5 0%,#27ae60 25%,#f1c40f 50%,#e67e22 75%,#9b59b6 100%)}
-  .scaleLabels{display:flex; justify-content:space-between; font-size:10px; color:var(--sub); margin-top:3px}
+  /* レイヤー凡例（粒子の色） */
+  .layerLegend{display:flex; gap:16px; align-items:center; font-size:12px; color:var(--sub)}
+  .lgDash{display:inline-block; width:18px; height:3px; border-radius:2px; vertical-align:middle; margin-right:5px}
+  .lgCur{background:#cdebff}
+  .lgWind{background:#ffe0a6}
   /* トグル行 */
   .chk{font-size:13px; display:flex; align-items:center; gap:6px}
   .chk input{width:17px; height:17px; accent-color:var(--accent)}
@@ -132,18 +133,17 @@
 
   <div class="prow">
     <span class="lab">流れ表示</span>
-    <div class="seg" id="modeSeg">
-      <button data-mode="current" class="on">海流</button>
-      <button data-mode="wind">風</button>
-      <button data-mode="drift">船の流れ</button>
+    <div class="seg" id="layerSeg">
+      <button data-layer="cur" class="on">海流</button>
+      <button data-layer="wind" class="on">風</button>
     </div>
   </div>
 
   <div class="prow">
-    <span class="lab" id="scaleName">海流の速さ</span>
-    <div class="scaleWrap">
-      <div class="scaleBar"></div>
-      <div class="scaleLabels" id="scaleLabels"></div>
+    <span class="lab">流れの色</span>
+    <div class="layerLegend">
+      <span><span class="lgDash lgCur"></span>海流</span>
+      <span><span class="lgDash lgWind"></span>風</span>
     </div>
   </div>
 
@@ -220,7 +220,7 @@ const nz = (v) => (v==null || Number.isNaN(v)) ? 0 : v;   // null は 0 とし�
 let state = {
   ready:false, points:[], pointMap:new Map(), times:null, baseIdx:0, offset:0, hourIdx:0,
   area:0, boat:{ ...AREAS[0] }, posName:AREAS[0].name,
-  mode:'current', spots:true, wp:2,           // wp=風圧流の係数(%)。従来プロトタイプの既定値
+  layers:{ cur:true, wind:true }, spots:true, wp:2,   // layers=粒子の表示レイヤー（海流と風を重ねて表示）。wp=風圧流の係数(%)。従来プロトタイプの既定値
   playing:false, playTimer:null,
 };
 
@@ -441,7 +441,7 @@ function sampleScalar(lat, lon, i, key){
 }
 
 // ---- 粒子用の流れ場グリッド（IDWを毎回計算せず、格子点に事前計算して双線形補間する） ----
-const fieldCache = new Map();   // キー `${hourIdx}:${mode}`
+const fieldCache = new Map();   // キー `${hourIdx}:${kind}`（kind='cur'/'wind'。両レイヤーの場を同時に保持できる）
 const F_LAT0 = 33.15, F_DLAT = 0.05, F_LON0 = 135.35, F_DLON = 0.06;
 const F_ROWS = Math.round((35.0 - F_LAT0) / F_DLAT) + 1;    // 格子点 lat 33.15〜35.0
 const F_COLS = Math.floor((137.65 - F_LON0) / F_DLON) + 1;  // 格子点 lon 135.35〜137.63
@@ -508,36 +508,9 @@ function onHourChanged(){
   updateBadges();
 }
 
-// ---- 速さ→色（青→緑→黄→橙→紫）とモード別スケール ----
-const COLOR_STOPS = [[0,[58,123,213]],[0.25,[39,174,96]],[0.5,[241,196,15]],[0.75,[230,126,34]],[1,[155,89,182]]];
-function speedColor(spd, maxScale, alpha){
-  const t = Math.max(0, Math.min(1, spd/maxScale));
-  for (let s=0; s<COLOR_STOPS.length-1; s++){
-    const [t0,c0] = COLOR_STOPS[s], [t1,c1] = COLOR_STOPS[s+1];
-    if (t <= t1 || s === COLOR_STOPS.length-2){
-      const f = t1 > t0 ? (t-t0)/(t1-t0) : 0;
-      const r = Math.round(c0[0]+(c1[0]-c0[0])*f);
-      const g = Math.round(c0[1]+(c1[1]-c0[1])*f);
-      const b = Math.round(c0[2]+(c1[2]-c0[2])*f);
-      return `rgba(${r},${g},${b},${alpha})`;
-    }
-  }
-  return `rgba(155,89,182,${alpha})`;
-}
-const SCALES = {
-  current: { name:'海流の速さ',     max:2.0, labels:['0','0.5','1.0','1.5','2.0+ kt'] },
-  drift:   { name:'船の流れの速さ', max:2.5, labels:['0','0.5','1.0','1.5','2.5+ kt'] },
-  wind:    { name:'風の速さ',       max:25,  labels:['0','5','10','15','20','30 m/s'] },
-};
-function updateScaleLegend(){
-  const sc = SCALES[state.mode];
-  document.getElementById('scaleName').textContent = sc.name;
-  document.getElementById('scaleLabels').innerHTML = sc.labels.map(l=>`<span>${l}</span>`).join('');
-}
-
-// ---- 流れの粒子アニメーション（約350個、短い軌跡つき） ----
-const P_COUNT = 350;
-let particles = [];
+// ---- 流れの粒子アニメーション（Windy風：海流と風の2レイヤーを重ねて表示。短い線分で描く） ----
+const P_COUNT_CUR = 300, P_COUNT_WIND = 250;
+let particlesCur = [], particlesWind = [];
 function spawnPos(){
   const b = map.getBounds();
   const latMin = Math.max(b.getSouth(), 33.15), latMax = Math.min(b.getNorth(), 35.0);
@@ -547,23 +520,24 @@ function spawnPos(){
 }
 function newParticle(){
   const p = spawnPos();
-  return { lat:p.lat, lon:p.lon, age:0, maxAge:70 + Math.random()*90, still:0, spd:0, trail:[] };
+  // prevLat/prevLon = 描画線分の始点（前ステップ位置）。リスポーン直後は現在位置と同じにして線を引かない
+  return { lat:p.lat, lon:p.lon, prevLat:p.lat, prevLon:p.lon, age:0, maxAge:70 + Math.random()*90, still:0 };
 }
 function startParticles(){
-  if (particles.length) return;
-  for (let k=0; k<P_COUNT; k++){ const p = newParticle(); p.age = Math.random()*p.maxAge; particles.push(p); }
+  if (!particlesCur.length)
+    for (let k=0; k<P_COUNT_CUR; k++){ const p = newParticle(); p.age = Math.random()*p.maxAge; particlesCur.push(p); }
+  if (!particlesWind.length)
+    for (let k=0; k<P_COUNT_WIND; k++){ const p = newParticle(); p.age = Math.random()*p.maxAge; particlesWind.push(p); }
 }
-function stepParticles(){
-  const i = state.hourIdx, kind = state.mode;
+function stepParticles(ps, kind){
+  const i = state.hourIdx;
   const dtSec = 480;   // 1ステップで進めるシミュレーション時間（秒）。描画を30fpsに間引く分、2倍にして見た目の速さを維持
-  for (const p of particles){
+  for (const p of ps){
+    p.prevLat = p.lat; p.prevLon = p.lon;
     const v = sampleField(p.lat, p.lon, i, kind);
     const spd = mag(v);
-    p.spd = spd;
-    // 単位を m/s にそろえる（海流・ドリフトは kt、風は m/s）
+    // 単位を m/s にそろえる（海流は kt、風は m/s）
     const ms = kind === 'wind' ? v : { x:v.x*0.5144, y:v.y*0.5144 };
-    p.trail.push([p.lat, p.lon]);
-    if (p.trail.length > 5) p.trail.shift();
     p.lat += (ms.y * dtSec) / 110540;
     p.lon += (ms.x * dtSec) / (111320 * Math.cos(rad(p.lat)));
     p.age += 2;   // ステップ頻度が半分になる分、加齢も2倍にして寿命（実時間）を維持
@@ -573,28 +547,20 @@ function stepParticles(){
     }
   }
 }
+// レイヤーごとの固定色（Windy風の淡い線）：海流=淡い水色、風=淡い黄色
+const LAYER_COLORS = { cur:'rgba(205,235,255,0.85)', wind:'rgba(255,224,166,0.85)' };
 function drawParticles(){
-  const maxScale = SCALES[state.mode].max;
   ctx.lineCap = 'round'; ctx.lineJoin = 'round'; ctx.lineWidth = 1.6;
-  // 色を8段階に量子化し、同色の粒子は1本のパスにまとめて stroke 回数を減らす
-  const BUCKETS = 8;
-  const buckets = Array.from({ length: BUCKETS }, ()=>[]);
-  for (const p of particles){
-    if (p.trail.length < 2) continue;
-    const ratio = Math.max(0, Math.min(1, p.spd / maxScale));
-    buckets[Math.min(BUCKETS-1, Math.floor(ratio * BUCKETS))].push(p);
-  }
-  for (let b=0; b<BUCKETS; b++){
-    if (!buckets[b].length) continue;
+  // レイヤーごとに1パスへまとめて stroke（最大2回）。各粒子は前位置→現位置の短い線分のみ
+  for (const [ps, kind] of [[particlesCur, 'cur'], [particlesWind, 'wind']]){
+    if (!state.layers[kind] || !ps.length) continue;
     ctx.beginPath();
-    for (const p of buckets[b]){
-      const pts = p.trail.concat([[p.lat, p.lon]]);
-      pts.forEach((q, j)=>{
-        const pt = map.latLngToContainerPoint([q[0], q[1]]);
-        if (j === 0) ctx.moveTo(pt.x, pt.y); else ctx.lineTo(pt.x, pt.y);
-      });
+    for (const p of ps){
+      const a = map.latLngToContainerPoint([p.prevLat, p.prevLon]);
+      const b = map.latLngToContainerPoint([p.lat, p.lon]);
+      ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y);
     }
-    ctx.strokeStyle = speedColor((b + 0.5) / BUCKETS * maxScale, maxScale, 0.75);   // バケット代表値の色
+    ctx.strokeStyle = LAYER_COLORS[kind];
     ctx.stroke();
   }
 }
@@ -702,7 +668,8 @@ function frame(){
     if (frameTick % 2 === 0){   // 描画は30fps相当に間引く（間引きフレームでは前回描画を保持）
       ctx.clearRect(0, 0, canvas.width, canvas.height);
       if (state.spots) drawAnalysis();
-      stepParticles();
+      if (state.layers.cur) stepParticles(particlesCur, 'cur');
+      if (state.layers.wind) stepParticles(particlesWind, 'wind');
       drawParticles();
     }
   }
@@ -727,11 +694,11 @@ btnPlay.onclick = ()=>{
     clearInterval(state.playTimer);
   }
 };
-document.getElementById('modeSeg').addEventListener('click', e=>{
+document.getElementById('layerSeg').addEventListener('click', e=>{
   const b = e.target.closest('button'); if (!b) return;
-  state.mode = b.dataset.mode;
-  [...e.currentTarget.children].forEach(x=>x.classList.toggle('on', x===b));
-  updateScaleLegend();
+  const layer = b.dataset.layer;
+  state.layers[layer] = !state.layers[layer];
+  b.classList.toggle('on', state.layers[layer]);
 });
 document.getElementById('chkSpots').addEventListener('change', e=>{ state.spots = e.target.checked; });
 document.getElementById('chkSea').addEventListener('change', e=>{
@@ -759,7 +726,6 @@ if (typeof L === 'undefined'){
   document.getElementById('errBanner').hidden = false;
 } else {
   initMap();
-  updateScaleLegend();
   loadAll();
   requestAnimationFrame(frame);
 }
