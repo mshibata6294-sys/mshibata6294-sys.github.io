@@ -241,10 +241,11 @@ let state = {
   playing:false, playTimer:null,
 };
 
-// ---- データ取得（堅牢版：20秒タイムアウト＋1回リトライ、20地点ずつ分割） ----
-async function fetchJSON(url, timeoutMs=20000, retries=1){
+// ---- データ取得（堅牢版：25秒タイムアウト＋最大2回リトライ（間隔つき）、20地点ずつ分割） ----
+async function fetchJSON(url, timeoutMs=25000, retries=2){
   let lastErr = null;
   for (let attempt=0; attempt<=retries; attempt++){
+    if (attempt > 0) await new Promise(r=>setTimeout(r, 1200 * attempt)); // APIが混んでいる時は間を空けて再試行
     const ctl = new AbortController();
     const timer = setTimeout(()=>ctl.abort(), timeoutMs);
     try{
