@@ -51,7 +51,10 @@
   /* 下部パネル */
   #panel{position:fixed; left:0; right:0; bottom:0; z-index:1100; background:var(--panel); backdrop-filter:blur(6px);
     border-top:1px solid var(--line); border-radius:18px 18px 0 0; padding:12px 14px calc(env(safe-area-inset-bottom) + 10px);
-    max-height:56vh; overflow-y:auto}
+    max-height:56vh; overflow-y:auto; transition:transform .28s ease}
+  #panel.collapsed{transform:translateY(calc(100% - 46px)); overflow:hidden}
+  #panelHandle{display:flex; align-items:center; justify-content:center; gap:10px; margin:-2px 0 8px; padding:4px 0 6px; cursor:pointer; color:var(--sub); font-size:12px}
+  #panelHandle .grab{width:44px; height:5px; border-radius:3px; background:var(--line)}
   .prow{display:flex; align-items:center; gap:10px; margin-bottom:10px}
   .phead{justify-content:space-between}
   #posName{font-size:16px; font-weight:700}
@@ -112,6 +115,7 @@
 </div>
 
 <section id="panel">
+  <div id="panelHandle"><span class="grab"></span><span id="panelHandleTxt">▼ 隠す</span><span class="grab"></span></div>
   <div class="prow phead">
     <div>
       <div id="posName">伊勢湾・鳥羽沖</div>
@@ -694,6 +698,11 @@ document.getElementById('btnReset').onclick = ()=>{
 document.getElementById('btnZoomIn').onclick  = ()=>map.zoomIn();
 document.getElementById('btnZoomOut').onclick = ()=>map.zoomOut();
 document.getElementById('btnReload').onclick  = ()=>location.reload();
+document.getElementById('panelHandle').onclick = ()=>{
+  const p = document.getElementById('panel');
+  const c = p.classList.toggle('collapsed');
+  document.getElementById('panelHandleTxt').textContent = c ? '▲ パネルを出す' : '▼ 隠す';
+};
 
 // ---- 起動 ----
 if (typeof L === 'undefined'){
