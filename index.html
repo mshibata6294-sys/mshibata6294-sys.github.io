@@ -3,766 +3,425 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>海流・風向き分析</title>
-<!-- 本命（プロジェクト版）：Leaflet + OpenStreetMap + OpenSeaMap 海図レイヤー -->
-<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<title>船の流れシミュレーター</title>
 <style>
   :root{
-    --bg:#0a1a2f; --panel:rgba(10,26,47,.95); --panel2:#17334f; --line:#274a6b;
-    --text:#eef4fa; --sub:#9db8cf; --accent:#ffb340; --bad:#ff7a7a;
-    --wind:#57b6ff; --current:#3ddc84; --drift:#ffb340;
+    --bg:#0b1c2c; --panel:#12293d; --panel2:#0e2233;
+    --text:#eaf2f8; --sub:#9db4c6; --accent:#ffb020;
+    --cyan:#4dd8ff; --pale:#a8c8ff;
   }
   *{box-sizing:border-box; -webkit-tap-highlight-color:transparent}
-  html,body{height:100%}
-  body{margin:0; font-family:-apple-system,"Hiragino Sans","Noto Sans JP",sans-serif; background:var(--bg); color:var(--text); overflow:hidden}
+  html,body{margin:0; padding:0}
+  body{
+    background:var(--bg); color:var(--text);
+    font-family:-apple-system,BlinkMacSystemFont,"Hiragino Sans","Noto Sans JP",sans-serif;
+    min-height:100dvh;
+  }
+  .wrap{
+    max-width:640px; margin:0 auto; min-height:100dvh;
+    display:flex; flex-direction:column; gap:12px;
+    padding:calc(14px + env(safe-area-inset-top)) 14px calc(16px + env(safe-area-inset-bottom));
+  }
+  header h1{font-size:20px; margin:0 0 4px; letter-spacing:.02em}
+  header .desc{margin:0; font-size:12.5px; color:var(--sub); line-height:1.5}
 
-  /* 地図（全画面） */
-  #map{position:fixed; inset:0; background:#0d2438; z-index:0}
-  #flowCanvas{position:absolute; top:0; left:0; pointer-events:none; z-index:500}
-  .leaflet-container{font-family:inherit}
+  .sea{
+    position:relative; flex:1 1 auto; min-height:320px;
+    border-radius:16px; overflow:hidden;
+    background:linear-gradient(180deg,#0d3a5c,#082a46);
+    box-shadow:inset 0 0 0 1px rgba(120,180,230,.18);
+  }
+  .sea canvas{position:absolute; inset:0; width:100%; height:100%; display:block}
 
-  /* ズームボタン（右側） */
-  #zoomBtns{position:fixed; right:10px; top:calc(env(safe-area-inset-top) + 12px); z-index:1200; display:flex; flex-direction:column; gap:6px}
-  #zoomBtns button{width:40px; height:40px; border-radius:10px; border:1px solid var(--line);
-    background:rgba(10,26,47,.88); color:var(--text); font-size:20px; line-height:1}
+  .controls{display:flex; align-items:center; gap:10px}
+  .play{
+    width:48px; height:48px; border-radius:50%; border:none; flex:0 0 auto;
+    background:var(--accent); color:#231600; font-size:19px; cursor:pointer;
+  }
+  .btn{
+    height:48px; padding:0 18px; border-radius:24px; border:1px solid rgba(157,180,198,.4);
+    background:var(--panel); color:var(--text); font-size:14px; cursor:pointer;
+  }
+  .elapsed{margin-left:auto; font-size:14px; color:var(--sub); font-variant-numeric:tabular-nums}
+  .elapsed b{color:var(--text); font-size:16px}
 
-  /* 読み込み中ピル */
-  #loading{position:fixed; top:calc(env(safe-area-inset-top) + 60px); left:50%; transform:translateX(-50%); z-index:1300;
-    background:rgba(10,26,47,.92); border:1px solid var(--line); border-radius:999px; padding:8px 16px; font-size:13px; color:var(--sub)}
-  #loading[hidden]{display:none}
+  .panel{background:var(--panel); border-radius:14px; padding:14px 16px}
+  .panel h2{font-size:13px; color:var(--sub); margin:0 0 10px; font-weight:600; letter-spacing:.06em}
+  .resMain{font-size:19px; font-weight:700; line-height:1.45; margin-bottom:10px}
+  .resMain .deg{color:var(--accent)}
+  .rrow{display:flex; justify-content:space-between; align-items:baseline; gap:12px;
+    padding:7px 0; border-top:1px solid rgba(157,180,198,.14); font-size:13.5px}
+  .rrow .k{color:var(--sub); flex:0 0 auto}
+  .rrow .v{text-align:right; font-weight:600; font-variant-numeric:tabular-nums}
+  .rrow.full{flex-direction:column; align-items:flex-start; gap:4px}
+  .rrow.full .v{text-align:left}
 
-  /* エラーバナー */
-  #errBanner{position:fixed; inset:0; z-index:1400; display:flex; align-items:center; justify-content:center; background:rgba(4,12,22,.55); padding:24px}
-  #errBanner[hidden]{display:none}
-  #errBanner .card{background:var(--panel); border:1px solid var(--line); border-radius:16px; padding:20px; max-width:340px; text-align:center}
-  #errBanner p{font-size:14px; line-height:1.7; margin:0 0 14px}
-  #errBanner button{padding:10px 22px; border-radius:10px; border:none; background:var(--accent); color:#231600; font-weight:700; font-size:14px}
-
-  /* 地点バッジ（16地点） */
-  .badgeWrap{background:none; border:none}
-  .badge{width:36px; height:36px; border-radius:50%; background:rgba(10,30,55,.85); border:1.5px solid var(--wind);
-    color:#fff; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:0}
-  .badge .barr{display:inline-block; font-size:11px; color:#7fd0ff; line-height:1}
-  .badge .bspd{font-size:9px; line-height:1.1; color:#dbeeff}
-  /* 船マーカー */
-  .boatWrap{background:none; border:none}
-  .boat{font-size:30px; line-height:1; filter:drop-shadow(0 2px 5px rgba(0,0,0,.65)); text-align:center}
-
-  /* 下部パネル */
-  #panel{position:fixed; left:0; right:0; bottom:0; z-index:1100; background:var(--panel); backdrop-filter:blur(6px);
-    border-top:1px solid var(--line); border-radius:18px 18px 0 0; padding:12px 14px calc(env(safe-area-inset-bottom) + 10px);
-    max-height:56vh; overflow-y:auto; transition:transform .28s ease}
-  #panel.collapsed{transform:translateY(calc(100% - 46px)); overflow:hidden}
-  #panelHandle{display:flex; align-items:center; justify-content:center; gap:10px; margin:-2px 0 8px; padding:4px 0 6px; cursor:pointer; color:var(--sub); font-size:12px}
-  #panelHandle .grab{width:44px; height:5px; border-radius:3px; background:var(--line)}
-  .prow{display:flex; align-items:center; gap:10px; margin-bottom:10px}
-  .phead{justify-content:space-between}
-  .btn{padding:8px 12px; border-radius:10px; border:1px solid var(--line); background:var(--panel2); color:var(--text); font-size:13px; white-space:nowrap}
-  .stats{display:grid; grid-template-columns:repeat(4,1fr); gap:6px}
-  .stat{background:var(--panel2); border-radius:10px; padding:7px 6px; text-align:center}
-  .farr{display:inline-block; color:#7fd0ff; font-size:15px; margin-right:3px; vertical-align:-1px}
-  .stat .k{font-size:10px; color:var(--sub)}
-  .stat .v{font-size:15px; font-weight:700; margin-top:2px; line-height:1.25}
-  .stat .v small{font-size:10px; color:var(--sub); font-weight:600}
-  /* 時刻スライダー＋オレンジの時刻バブル */
-  .timeRow{gap:8px}
-  .play{width:42px; height:42px; border-radius:50%; border:none; background:var(--accent); color:#231600; font-size:16px; flex:0 0 auto}
-  .sliderWrap{position:relative; flex:1; padding-top:24px}
-  #timeBubble{position:absolute; top:0; transform:translateX(-50%); background:var(--accent); color:#231600;
-    font-size:12px; font-weight:700; border-radius:8px; padding:2px 8px; white-space:nowrap; pointer-events:none}
-  #timeBubble::after{content:''; position:absolute; left:50%; bottom:-5px; transform:translateX(-50%);
-    border:5px solid transparent; border-top-color:var(--accent); border-bottom:none}
-  input[type=range]{width:100%; accent-color:var(--accent); margin:0}
-  /* 流れ表示セグメント */
-  .lab{font-size:12px; color:var(--sub); flex:0 0 auto}
-  .seg{display:flex; background:var(--panel2); border:1px solid var(--line); border-radius:10px; overflow:hidden}
-  .seg button{padding:7px 13px; border:none; background:transparent; color:var(--sub); font-size:13px}
-  .seg button.on{background:var(--accent); color:#231600; font-weight:700}
-  /* 色スケール */
-  .scaleWrap{flex:1}
-  .scaleBar{height:8px; border-radius:4px; background:linear-gradient(90deg,#3a7bd5 0%,#27ae60 25%,#f1c40f 50%,#e67e22 75%,#9b59b6 100%)}
-  .scaleLabels{display:flex; justify-content:space-between; font-size:10px; color:var(--sub); margin-top:3px}
-  /* トグル行 */
-  .chk{font-size:13px; display:flex; align-items:center; gap:6px}
-  .chk input{width:17px; height:17px; accent-color:var(--accent)}
-  .spotLegend{font-size:11px; color:var(--sub)}
-  .lgShiome{display:inline-block; width:16px; height:4px; border-radius:2px; background:#ffd968; box-shadow:0 0 6px #ffd968; vertical-align:middle; margin-right:4px}
-  .lgYore{display:inline-block; width:11px; height:11px; border-radius:50%; border:2px solid #50c8ff; vertical-align:-2px; margin:0 4px 0 8px}
-  .foot{font-size:10.5px; color:var(--sub); line-height:1.6; margin-top:2px}
+  .igroup{margin-bottom:16px}
+  .igroup:last-child{margin-bottom:2px}
+  .ihead{display:flex; justify-content:space-between; align-items:baseline; margin-bottom:6px}
+  .ihead label{font-size:14px; font-weight:600}
+  .ihead .val{font-size:13.5px; color:var(--accent); font-weight:600; font-variant-numeric:tabular-nums}
+  input[type=range]{width:100%; accent-color:var(--accent); height:28px; margin:0}
+  .seg{display:flex; gap:8px}
+  .seg button{
+    flex:1; height:42px; border-radius:10px; border:1px solid rgba(157,180,198,.35);
+    background:var(--panel2); color:var(--sub); font-size:14px; cursor:pointer;
+  }
+  .seg button.on{background:var(--accent); border-color:var(--accent); color:#231600; font-weight:700}
+  .note{font-size:12px; color:var(--sub); margin:10px 0 0; line-height:1.5}
 </style>
 </head>
 <body>
-<div id="map"></div>
+<div class="wrap">
+  <header>
+    <h1>船の流れシミュレーター</h1>
+    <p class="desc">風と潮流を入力すると、船がどう流れるかを計算します</p>
+  </header>
 
+  <div class="sea" id="sea"><canvas id="cv"></canvas></div>
 
-<div id="zoomBtns">
-  <button id="btnZoomIn" aria-label="拡大">＋</button>
-  <button id="btnZoomOut" aria-label="縮小">−</button>
+  <div class="controls">
+    <button class="play" id="btnPlay" aria-label="再生・停止">▶</button>
+    <button class="btn" id="btnReset">リセット</button>
+    <div class="elapsed" id="elapsed">経過 <b>0分</b> / 60分</div>
+  </div>
+
+  <section class="panel">
+    <h2>計算結果</h2>
+    <div class="resMain" id="resMain">—</div>
+    <div class="rrow"><span class="k" id="distLabel">60分で流される距離</span><span class="v" id="resDist">—</span></div>
+    <div class="rrow full"><span class="k">ポイントに合わせるなら</span><span class="v" id="resStart">—</span></div>
+    <div class="rrow"><span class="k">内訳</span><span class="v" id="resBreak">—</span></div>
+  </section>
+
+  <section class="panel">
+    <h2>入力</h2>
+
+    <div class="igroup">
+      <div class="ihead"><label for="inWindFrom">風向き（吹いてくる方角）</label><span class="val" id="valWindFrom">—</span></div>
+      <input type="range" id="inWindFrom" min="0" max="360" step="1" value="315">
+    </div>
+
+    <div class="igroup">
+      <div class="ihead"><label for="inWindMs">風速</label><span class="val" id="valWindMs">—</span></div>
+      <input type="range" id="inWindMs" min="0" max="20" step="0.5" value="6">
+    </div>
+
+    <div class="igroup">
+      <div class="ihead"><label for="inCurDeg">潮流の向き（流れる方角）</label><span class="val" id="valCurDeg">—</span></div>
+      <input type="range" id="inCurDeg" min="0" max="360" step="1" value="180">
+    </div>
+
+    <div class="igroup">
+      <div class="ihead"><label for="inCurKt">潮流の速さ</label><span class="val" id="valCurKt">—</span></div>
+      <input type="range" id="inCurKt" min="0" max="3" step="0.05" value="0.8">
+    </div>
+
+    <div class="igroup">
+      <div class="ihead"><label>流す時間</label></div>
+      <div class="seg" id="segDur">
+        <button data-min="10">10分</button>
+        <button data-min="30">30分</button>
+        <button data-min="60" class="on">60分</button>
+        <button data-min="120">120分</button>
+      </div>
+    </div>
+
+    <p class="note">風圧流は風速の2%で計算しています</p>
+  </section>
 </div>
 
-<div id="loading">予報を取得中…</div>
-
-<div id="errBanner" hidden>
-  <div class="card">
-    <p id="errMsg">予報データを取得できませんでした。</p>
-    <button id="btnReload">再読み込み</button>
-  </div>
-</div>
-
-<section id="panel">
-  <div id="panelHandle"><span class="grab"></span><span id="panelHandleTxt">▼ 隠す</span><span class="grab"></span></div>
-  <div class="prow phead" style="justify-content:flex-end">
-    <button class="btn" id="btnReset">エリアに戻す</button>
-  </div>
-
-  <div class="prow stats">
-    <div class="stat"><div class="k">風</div><div class="v" id="stWind">--</div></div>
-    <div class="stat"><div class="k">海流</div><div class="v" id="stCur">--</div></div>
-    <div class="stat"><div class="k">船の流れ</div><div class="v" id="stDrift">--</div></div>
-    <div class="stat"><div class="k">波高</div><div class="v" id="stWave">--</div></div>
-  </div>
-
-  <div class="prow timeRow">
-    <button class="play" id="btnPlay" aria-label="再生">▶</button>
-    <div class="sliderWrap">
-      <div id="timeBubble">--</div>
-      <input type="range" id="timeSlider" min="0" max="47" step="1" value="0">
-    </div>
-  </div>
-
-  <div class="prow">
-    <span class="lab">流れ表示</span>
-    <div class="seg" id="modeSeg">
-      <button data-mode="current" class="on">海流</button>
-      <button data-mode="wind">風</button>
-      <button data-mode="drift">船の流れ</button>
-    </div>
-  </div>
-
-  <div class="prow">
-    <span class="lab" id="scaleName">海流の速さ</span>
-    <div class="scaleWrap">
-      <div class="scaleBar"></div>
-      <div class="scaleLabels" id="scaleLabels"></div>
-    </div>
-  </div>
-
-  <div class="prow">
-    <label class="chk"><input type="checkbox" id="chkSpots" checked> 潮目・ヨレ</label>
-    <span class="spotLegend"><span class="lgShiome"></span>潮目＝流れの合流<span class="lgYore"></span>ヨレ＝流れが緩む</span>
-  </div>
-
-  <div class="prow">
-    <label class="chk"><input type="checkbox" id="chkSea" checked> 海図情報（航路標識・灯台など）</label>
-  </div>
-
-  <div class="foot">
-    <span id="stageNote"></span><br>
-    予報データ：Open-Meteo（天気予報・海洋予報）。海流は表層流の予報値で、実際の潮流とは異なる場合があります。安全判断は必ず公式の気象・海象情報を確認してください。<br>
-    地図：© OpenStreetMap contributors ／ 海図情報：© OpenSeaMap contributors
-  </div>
-</section>
-
-<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script>
 'use strict';
-/* =========================================================
-   海流・風向き分析（本命プロジェクト版）
-   - 地図：Leaflet + OpenStreetMap + OpenSeaMap 海図レイヤー
-   - データ：Open-Meteo 天気予報 / 海洋予報（全58地点・48時間先まで）
-   - 表示：流れの粒子アニメーション、潮目・ヨレ自動検出
-   ========================================================= */
+// ---- 定数・ユーティリティ ----
+const DIRS = ['北','北北東','北東','東北東','東','東南東','南東','南南東','南','南南西','南西','西南西','西','西北西','北西','北北西'];
+const rad = d => d * Math.PI / 180;
+const dirName = deg => DIRS[Math.round(deg / 22.5) % 16];
+// 方位（進む方角deg・北=0で時計回り）→ ベクトル {x:東, y:北}
+const vecFrom = (spd, degTo) => ({ x: spd * Math.sin(rad(degTo)), y: spd * Math.cos(rad(degTo)) });
 
-// ---- エリア定義（従来プロトタイプから継承） ----
-const AREAS = [
-  { name:'伊勢湾・鳥羽沖',   lat:34.55, lon:136.95 },
-  { name:'志摩沖・大王崎沖', lat:34.25, lon:136.85 },
-  { name:'熊野灘・尾鷲沖',   lat:33.95, lon:136.35 },
-  { name:'南紀・串本沖',     lat:33.45, lon:135.85 },
-];
-// ---- 表示ポイント16地点（先行取得して即表示。バッジを出す） ----
-const POINTS16 = [
-  { name:'伊勢湾・鳥羽沖',   lat:34.55, lon:136.95 },
-  { name:'伊勢湾央',         lat:34.75, lon:136.80 },
-  { name:'知多半島沖',       lat:34.85, lon:137.00 },
-  { name:'渥美半島沖',       lat:34.62, lon:137.25 },
-  { name:'遠州灘寄り',       lat:34.38, lon:137.05 },
-  { name:'志摩沖・大王崎沖', lat:34.25, lon:136.85 },
-  { name:'志摩東沖',         lat:34.30, lon:137.10 },
-  { name:'志摩南沖',         lat:34.10, lon:136.70 },
-  { name:'熊野灘・尾鷲沖',   lat:33.95, lon:136.35 },
-  { name:'熊野灘・北',       lat:34.05, lon:136.60 },
-  { name:'熊野灘・央',       lat:33.85, lon:136.70 },
-  { name:'熊野灘・南西',     lat:33.75, lon:136.10 },
-  { name:'南紀・串本沖',     lat:33.45, lon:135.85 },
-  { name:'串本東沖',         lat:33.55, lon:136.15 },
-  { name:'串本西沖',         lat:33.40, lon:135.60 },
-  { name:'紀伊水道寄り',     lat:33.65, lon:135.90 },
-];
-// ---- 格子点42地点（背景で取得し、流れの場を精密化する） ----
-const GRID42 = [];
-for (const la of [33.35, 33.65, 33.95, 34.25, 34.55, 34.85])
-  for (const lo of [135.55, 135.85, 136.15, 136.45, 136.75, 137.05, 137.35])
-    GRID42.push({ lat:la, lon:lo });
+// ---- 状態 ----
+const state = {
+  windFrom: 315,   // 風向き（吹いてくる方角, deg）
+  windMs: 6,       // 風速 m/s
+  curDeg: 180,     // 潮流の向き（流れる方角, deg）
+  curKt: 0.8,      // 潮流の速さ kt
+  minutes: 60,     // 流す時間（分）
+  playing: false,
+  elapsedMin: 0,   // 経過（シミュレーション分）
+};
+const PLAY_SECONDS = 24;   // 全時間を再生する実秒数
+let trail = [];            // 船の軌跡 {e,n} km（開始位置からの東・北オフセット）
+const TRAIL_MAX = 40;
 
-// ---- ベクトル計算ユーティリティ（従来プロトタイプから継承） ----
-// 向きは「進む先」の方位角(deg, 北=0, 東=90)。x=東成分, y=北成分
-const DIRS16 = ['北','北北東','北東','東北東','東','東南東','南東','南南東','南','南南西','南西','西南西','西','西北西','北西','北北西'];
-const dirName = deg => DIRS16[Math.round(((deg%360)+360)%360/22.5)%16];
-const rad = d => d*Math.PI/180;
-const vec = (deg, spd) => ({ x: Math.sin(rad(deg))*spd, y: Math.cos(rad(deg))*spd });
-const add = (a,b) => ({ x:a.x+b.x, y:a.y+b.y });
-const mag = v => Math.hypot(v.x, v.y);
-const ang = v => (Math.atan2(v.x, v.y)*180/Math.PI+360)%360;
-const angDiff = (a,b) => { const d = Math.abs(a-b)%360; return d>180 ? 360-d : d; };
-const nz = (v) => (v==null || Number.isNaN(v)) ? 0 : v;   // null は 0 として扱う（陸地点など）
+// ---- 計算 ----
+function compute(){
+  const windKt = state.windMs * 1.944;
+  const windDriftKt = windKt * 0.02;
+  const windDriftDeg = (state.windFrom + 180) % 360;
+  const cv = vecFrom(state.curKt, state.curDeg);
+  const wv = vecFrom(windDriftKt, windDriftDeg);
+  const x = cv.x + wv.x, y = cv.y + wv.y;
+  const spd = Math.hypot(x, y);
+  const deg = (Math.atan2(x, y) * 180 / Math.PI + 360) % 360;
+  const distKm = spd * 1.852 * state.minutes / 60;
+  return { windKt, windDriftKt, windDriftDeg, spd, deg, distKm, revDeg: (deg + 180) % 360 };
+}
 
-let state = {
-  ready:false, points:[], pointMap:new Map(), times:null, baseIdx:0, offset:0, hourIdx:0,
-  area:0, boat:{ ...AREAS[0] }, posName:AREAS[0].name,
-  mode:'current', spots:true, wp:2,           // wp=風圧流の係数(%)。従来プロトタイプの既定値
-  playing:false, playTimer:null,
+// ---- DOM ----
+const $ = id => document.getElementById(id);
+const els = {
+  windFrom: $('inWindFrom'), windMs: $('inWindMs'), curDeg: $('inCurDeg'), curKt: $('inCurKt'),
+  valWindFrom: $('valWindFrom'), valWindMs: $('valWindMs'), valCurDeg: $('valCurDeg'), valCurKt: $('valCurKt'),
+  resMain: $('resMain'), distLabel: $('distLabel'), resDist: $('resDist'), resStart: $('resStart'), resBreak: $('resBreak'),
+  elapsed: $('elapsed'), btnPlay: $('btnPlay'), segDur: $('segDur'),
 };
 
-// ---- データ取得（堅牢版：25秒タイムアウト＋最大2回リトライ（間隔つき）、20地点ずつ分割） ----
-async function fetchJSON(url, timeoutMs=25000, retries=2){
-  let lastErr = null;
-  for (let attempt=0; attempt<=retries; attempt++){
-    if (attempt > 0) await new Promise(r=>setTimeout(r, 1200 * attempt)); // APIが混んでいる時は間を空けて再試行
-    const ctl = new AbortController();
-    const timer = setTimeout(()=>ctl.abort(), timeoutMs);
-    try{
-      const r = await fetch(url, { signal: ctl.signal });
-      clearTimeout(timer);
-      if (!r.ok) throw new Error('HTTP ' + r.status);
-      return await r.json();
-    }catch(e){ clearTimeout(timer); lastErr = e; }
-  }
-  throw lastErr;
-}
-// APIレスポンス → 内部形式（単位変換：風 km/h→m/s、海流 km/h→ノット）
-function convertPoint(p, w, m){
-  const times = (w && w.hourly && w.hourly.time) || [];
-  const n = times.length;
-  const col = (src, fn)=>{ const o = new Array(n); for (let i=0;i<n;i++) o[i] = fn(src ? src[i] : null); return o; };
-  const wh = w ? w.hourly : {}, mh = m ? m.hourly : {};
-  return { lat:p.lat, lon:p.lon, times,
-    windSpd: col(wh.wind_speed_10m,        v=>nz(v)/3.6),
-    windDir: col(wh.wind_direction_10m,    v=>nz(v)),   // 吹いてくる方
-    gust:    col(wh.wind_gusts_10m,        v=>nz(v)/3.6),
-    wave:    col(mh.wave_height,           v=>nz(v)),
-    curKt:   col(mh.ocean_current_velocity, v=>nz(v)/1.852),
-    curDir:  col(mh.ocean_current_direction, v=>nz(v)), // 流れる先
-  };
-}
-// 地点の重複判定キー（座標）と、未取得地点だけを state へ追加するマージ用ヘルパー
-const pointKey = (lat, lon) => `${lat},${lon}`;
-function addPoints(list){
-  let added = false;
-  for (const p of list){
-    const k = pointKey(p.lat, p.lon);
-    if (!state.pointMap.has(k)){ state.pointMap.set(k, p); state.points.push(p); added = true; }
-  }
-  if (added) fieldCache.clear();   // 場が変わるので粒子用グリッドも作り直す
-}
-// 複数地点をまとめて取得（1リクエスト最大20地点、チャンクは並列実行）。天気は必須、海洋は失敗時ゼロ値で継続
-async function fetchPoints(list){
-  const jobs = [];
-  for (let s=0; s<list.length; s+=20){
-    const ch = list.slice(s, s+20);
-    jobs.push((async ()=>{
-      const part = [];
-      const lats = ch.map(p=>p.lat).join(','), lons = ch.map(p=>p.lon).join(',');
-      const wUrl = `https://api.open-meteo.com/v1/forecast?latitude=${lats}&longitude=${lons}&hourly=wind_speed_10m,wind_direction_10m,wind_gusts_10m&timezone=Asia%2FTokyo&forecast_days=3`;
-      const mUrl = `https://marine-api.open-meteo.com/v1/marine?latitude=${lats}&longitude=${lons}&hourly=wave_height,ocean_current_velocity,ocean_current_direction&timezone=Asia%2FTokyo&forecast_days=3`;
-      const [w, m] = await Promise.all([ fetchJSON(wUrl), fetchJSON(mUrl).catch(()=>null) ]);
-      const wArr = Array.isArray(w) ? w : [w];
-      const mArr = m ? (Array.isArray(m) ? m : [m]) : [];
-      ch.forEach((p, idx)=>{ if (wArr[idx]) part.push(convertPoint(p, wArr[idx], mArr[idx] || null)); });
-      return part;
-    })());
-  }
-  const parts = await Promise.all(jobs);   // チャンクの順序どおりに結合する
-  return parts.reduce((acc, part)=>acc.concat(part), []);
-}
-// 段階読み込み：A=主要4地点で即表示、B=表示16地点を背景取得、C=格子42地点を背景取得して精密化
-async function loadAll(){
-  const loading = document.getElementById('loading');
-  const note = document.getElementById('stageNote');
-  loading.hidden = false;
-  document.getElementById('errBanner').hidden = true;
-  state.points = [];
-  state.pointMap = new Map();
-  try{
-    // Stage A：主要4地点（AREAS）のみを先行取得し、最速で表示する
-    const first = await fetchPoints(AREAS);
-    if (!first.length || !first[0].times.length) throw new Error('empty response');
-    addPoints(first);
-    state.times = first[0].times;
-    const now = new Date(); let base = 0;
-    state.times.forEach((t,i)=>{ if (new Date(t) <= now) base = i; });
-    state.baseIdx = base; state.offset = 0; state.hourIdx = base;
-    state.ready = true;
-    loading.hidden = true;
-    note.textContent = '主要地点のデータで表示中。残りを読み込み中…';
-    buildBadges();
-    onHourChanged();
-    startParticles();
-  }catch(e){
-    loading.hidden = true;
-    document.getElementById('errMsg').textContent = '予報データを取得できませんでした。通信環境を確認して、再読み込みしてください。';
-    document.getElementById('errBanner').hidden = false;
-    return;
-  }
-  // Stage B → C：背景で順に取得する（Bが失敗してもCは試みる）
-  (async ()=>{
-    try{
-      const rest16 = await fetchPoints(POINTS16);
-      if (rest16.length){
-        addPoints(rest16);   // 主要4地点は座標キーで重複排除される
-        buildBadges();
-        renderPanel();
-      }
-      note.textContent = '表示地点のデータで表示中。格子データを読み込み中…';
-    }catch(e){ /* Stage B失敗時はそのままStage Cへ進む */ }
-    try{
-      const rest = await fetchPoints(GRID42);
-      if (rest.length){
-        addPoints(rest);
-        analysisCache.clear();   // 場が変わるので潮目・ヨレを再計算させる
-        fieldCache.clear();
-        renderPanel();
-      }
-      note.textContent = '全58地点のデータで表示中。';
-    }catch(e){
-      note.textContent = '格子データの取得に失敗したため、表示地点のデータで表示中。';
-    }
-  })();
+function updateReadouts(){
+  els.valWindFrom.textContent = `${dirName(state.windFrom)}（${state.windFrom}°）から`;
+  els.valWindMs.textContent = `${state.windMs} m/s`;
+  els.valCurDeg.textContent = `${dirName(state.curDeg)}（${state.curDeg}°）へ`;
+  els.valCurKt.textContent = `${state.curKt.toFixed(2)} kt`;
 }
 
-// ---- 地図（Leaflet + OSM + OpenSeaMap 海図レイヤー） ----
-let map = null, seamarkLayer = null, boatMarker = null, badgeMarkers = [];
-let canvas = null, ctx = null;
-function initMap(){
-  map = L.map('map', { zoomControl:false, attributionControl:false, doubleClickZoom:false })
-        .setView([state.boat.lat, state.boat.lon], 9);
-  L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom:19 }).addTo(map);
-  seamarkLayer = L.tileLayer('https://tiles.openseamap.org/seamark/{z}/{x}/{y}.png', { maxZoom:18, opacity:0.95 });
-  seamarkLayer.addTo(map);   // 海図情報は既定で ON
-  // 流れ描画用キャンバス（地図の上・バッジや船より下の層）
-  canvas = document.createElement('canvas');
-  canvas.id = 'flowCanvas';
-  map.getContainer().appendChild(canvas);
-  ctx = canvas.getContext('2d');
-  fitCanvas();
-  map.on('resize', fitCanvas);
-  boatMarker = L.marker([state.boat.lat, state.boat.lon], {
-    icon: L.divIcon({ className:'boatWrap', html:'<div class="boat">⛵</div>', iconSize:[34,34], iconAnchor:[17,17] }),
-    zIndexOffset: 1000,
-  }).addTo(map);
-  // タップで船を移動（ドラッグ後のクリックでは動かさない）
-  let downPt = null;
-  map.on('mousedown', e=>{ downPt = e.containerPoint; });
-  map.on('click', e=>{
-    if (downPt && e.containerPoint.distanceTo(downPt) > 6) return;
-    moveBoat(e.latlng.lat, e.latlng.lng, null);
-  });
+function updateResults(){
+  const c = compute();
+  if (c.spd < 0.005){
+    els.resMain.textContent = '船の流れ：ほぼ流れません';
+  } else {
+    els.resMain.innerHTML = `船の流れ：<span class="deg">${dirName(c.deg)}（${Math.round(c.deg)}°）</span>へ ${c.spd.toFixed(2)} kt`;
+  }
+  els.distLabel.textContent = `${state.minutes}分で流される距離`;
+  els.resDist.textContent = c.spd < 0.005 ? '約 0.00 km' : `約 ${c.distKm.toFixed(2)} km（${dirName(c.deg)}へ）`;
+  els.resStart.textContent = c.spd < 0.005
+    ? '流れがほぼないため、その場にとどまります'
+    : `ポイントから ${dirName(c.revDeg)} へ約 ${c.distKm.toFixed(2)} km の位置から流し始める`;
+  els.resBreak.textContent = `潮流 ${state.curKt.toFixed(2)} kt ／ 風圧流 ${c.windDriftKt.toFixed(2)} kt（風速の2%）`;
+  updateElapsedLabel();
 }
+
+function updateElapsedLabel(){
+  const shown = state.elapsedMin >= state.minutes ? state.minutes : Math.floor(state.elapsedMin);
+  els.elapsed.innerHTML = `経過 <b>${shown}分</b> / ${state.minutes}分`;
+}
+
+// 入力が変わったら再計算してアニメーションを最初から（再生/停止の状態は維持）
+function onInputChanged(){
+  state.elapsedMin = 0;
+  trail = [];
+  updateReadouts();
+  updateResults();
+}
+
+els.windFrom.addEventListener('input', e => { state.windFrom = Number(e.target.value); onInputChanged(); });
+els.windMs.addEventListener('input', e => { state.windMs = Number(e.target.value); onInputChanged(); });
+els.curDeg.addEventListener('input', e => { state.curDeg = Number(e.target.value); onInputChanged(); });
+els.curKt.addEventListener('input', e => { state.curKt = Number(e.target.value); onInputChanged(); });
+els.segDur.addEventListener('click', e => {
+  const b = e.target.closest('button'); if (!b) return;
+  state.minutes = Number(b.dataset.min);
+  [...els.segDur.children].forEach(x => x.classList.toggle('on', x === b));
+  onInputChanged();
+});
+
+// ---- 再生コントロール ----
+function setPlaying(p){
+  state.playing = p;
+  els.btnPlay.textContent = p ? '⏸' : '▶';
+}
+els.btnPlay.addEventListener('click', () => {
+  if (state.playing){ setPlaying(false); return; }
+  if (state.elapsedMin >= state.minutes){ state.elapsedMin = 0; trail = []; }
+  setPlaying(true);
+});
+$('btnReset').addEventListener('click', () => {
+  state.elapsedMin = 0;
+  trail = [];
+  setPlaying(false);
+  updateElapsedLabel();
+});
+
+// ---- キャンバス ----
+const sea = $('sea'), cv = $('cv'), ctx = cv.getContext('2d');
+let cssW = 0, cssH = 0;
 function fitCanvas(){
-  if (!map || !canvas) return;
-  const s = map.getSize(), dpr = Math.min(window.devicePixelRatio || 1, 2);
-  canvas.width = Math.round(s.x * dpr); canvas.height = Math.round(s.y * dpr);
-  canvas.style.width = s.x + 'px'; canvas.style.height = s.y + 'px';
+  const r = sea.getBoundingClientRect();
+  const dpr = window.devicePixelRatio || 1;
+  cssW = r.width; cssH = r.height;
+  cv.width = Math.round(r.width * dpr);
+  cv.height = Math.round(r.height * dpr);
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 }
+if (window.ResizeObserver) new ResizeObserver(fitCanvas).observe(sea);
+window.addEventListener('resize', fitCanvas);
+fitCanvas();
 
-// ---- 地点バッジ（海流の向き矢印＋速さ） ----
-function badgeHTML(p, i){
-  return `<div class="badge"><span class="barr" style="transform:rotate(${Math.round(p.curDir[i]-90)}deg)">➤</span><span class="bspd">${p.curKt[i].toFixed(1)}</span></div>`;
-}
-function buildBadges(){
-  badgeMarkers.forEach(mk=>map.removeLayer(mk));
-  badgeMarkers = [];
-  POINTS16.forEach((pt)=>{
-    const p = state.pointMap.get(pointKey(pt.lat, pt.lon)); if (!p) return;
-    const mk = L.marker([pt.lat, pt.lon], {
-      icon: L.divIcon({ className:'badgeWrap', html:badgeHTML(p, state.hourIdx), iconSize:[36,36], iconAnchor:[18,18] }),
-    }).addTo(map);
-    mk._key = pointKey(pt.lat, pt.lon);
-    mk.on('click', ()=>moveBoat(pt.lat, pt.lon, pt.name));
-    badgeMarkers.push(mk);
-  });
-}
-function updateBadges(){
-  badgeMarkers.forEach((mk)=>{
-    const p = state.pointMap.get(mk._key); if (!p) return;
-    mk.setIcon(L.divIcon({ className:'badgeWrap', html:badgeHTML(p, state.hourIdx), iconSize:[36,36], iconAnchor:[18,18] }));
-  });
-}
-
-// ---- 船の移動 ----
-function moveBoat(lat, lon, name){
-  state.boat = { lat, lon };
-  state.posName = name || 'タップした地点';
-  if (boatMarker) boatMarker.setLatLng([lat, lon]);
-  if (map) map.flyTo([lat, lon], map.getZoom(), { duration:0.6 });   // 船の位置が中心に来るよう地図も移動
-  const ai = AREAS.findIndex(a=>Math.abs(a.lat-lat) < 1e-6 && Math.abs(a.lon-lon) < 1e-6);
-  if (ai >= 0) state.area = ai;   // リセット先は最後に選んだエリア
-  renderPanel();
-}
-
-// ---- 補間（逆距離加重 IDW） ----
-function sampleVec(lat, lon, i, kind){
-  let sw = 0, sx = 0, sy = 0;
-  const cosLat = Math.cos(rad(lat));
-  for (const p of state.points){
-    const dLat = (p.lat-lat)*111.32, dLon = (p.lon-lon)*111.32*cosLat;
-    const wgt = 1 / Math.max(dLat*dLat + dLon*dLon, 0.04);
-    let v;
-    if (kind === 'cur') v = vec(p.curDir[i], p.curKt[i]);
-    else if (kind === 'wind') v = vec((p.windDir[i]+180)%360, p.windSpd[i]);
-    else { // drift = 海流(kt) + 風圧流(kt)
-      const wv = vec((p.windDir[i]+180)%360, p.windSpd[i]*1.944*(state.wp/100));
-      v = add(vec(p.curDir[i], p.curKt[i]), wv);
-    }
-    sx += v.x*wgt; sy += v.y*wgt; sw += wgt;
-  }
-  return sw ? { x:sx/sw, y:sy/sw } : { x:0, y:0 };
-}
-function sampleScalar(lat, lon, i, key){
-  let sw = 0, sv = 0;
-  const cosLat = Math.cos(rad(lat));
-  for (const p of state.points){
-    const dLat = (p.lat-lat)*111.32, dLon = (p.lon-lon)*111.32*cosLat;
-    const wgt = 1 / Math.max(dLat*dLat + dLon*dLon, 0.04);
-    sv += nz(p[key][i]) * wgt; sw += wgt;
-  }
-  return sw ? sv/sw : 0;
-}
-
-// ---- 粒子用の流れ場グリッド（IDWを毎回計算せず、格子点に事前計算して双線形補間する） ----
-const fieldCache = new Map();   // キー `${hourIdx}:${mode}`
-const F_LAT0 = 33.15, F_DLAT = 0.05, F_LON0 = 135.35, F_DLON = 0.06;
-const F_ROWS = Math.round((35.0 - F_LAT0) / F_DLAT) + 1;    // 格子点 lat 33.15〜35.0
-const F_COLS = Math.floor((137.65 - F_LON0) / F_DLON) + 1;  // 格子点 lon 135.35〜137.63
-function getField(i, kind){
-  const key = `${i}:${kind}`;
-  let f = fieldCache.get(key);
-  if (f) return f;
-  const data = new Float32Array(F_ROWS * F_COLS * 2);
-  for (let r=0; r<F_ROWS; r++){
-    for (let c=0; c<F_COLS; c++){
-      const v = sampleVec(F_LAT0 + r*F_DLAT, F_LON0 + c*F_DLON, i, kind);
-      const o = (r*F_COLS + c) * 2;
-      data[o] = v.x; data[o+1] = v.y;
-    }
-  }
-  f = { lat0:F_LAT0, lon0:F_LON0, dLat:F_DLAT, dLon:F_DLON, rows:F_ROWS, cols:F_COLS, data };
-  fieldCache.set(key, f);
-  return f;
-}
-function sampleField(lat, lon, i, kind){
-  const f = getField(i, kind);
-  const fr = (lat - f.lat0) / f.dLat, fc = (lon - f.lon0) / f.dLon;
-  if (fr < 0 || fc < 0 || fr > f.rows-1 || fc > f.cols-1) return sampleVec(lat, lon, i, kind);   // 格子の外は従来のIDW
-  const r0 = Math.min(Math.floor(fr), f.rows-2), c0 = Math.min(Math.floor(fc), f.cols-2);
-  const tr = fr - r0, tc = fc - c0, d = f.data;
-  const o00 = (r0*f.cols + c0) * 2, o01 = o00 + 2, o10 = o00 + f.cols*2, o11 = o10 + 2;
-  const x = (d[o00]  *(1-tr) + d[o10]  *tr) * (1-tc) + (d[o01]  *(1-tr) + d[o11]  *tr) * tc;
-  const y = (d[o00+1]*(1-tr) + d[o10+1]*tr) * (1-tc) + (d[o01+1]*(1-tr) + d[o11+1]*tr) * tc;
-  return { x, y };
-}
-
-// ---- パネル描画 ----
-function fmtTime(idx){
-  const t = new Date(state.times[idx]);
-  return `${t.getMonth()+1}/${t.getDate()} ${String(t.getHours()).padStart(2,'0')}時`;
-}
-function renderPanel(){
-  if (!state.ready) return;
-  const i = state.hourIdx, b = state.boat;
-  const wv = sampleVec(b.lat, b.lon, i, 'wind');
-  const cv = sampleVec(b.lat, b.lon, i, 'cur');
-  const dv = sampleVec(b.lat, b.lon, i, 'drift');
-  const windMs = mag(wv), windTo = ang(wv), windFrom = (windTo+180)%360;
-  const curSpd = mag(cv), curDir = ang(cv);
-  const driftSpd = mag(dv), driftDir = ang(dv);
-  const wave = sampleScalar(b.lat, b.lon, i, 'wave');
-  const gust = sampleScalar(b.lat, b.lon, i, 'gust');
-
-  document.getElementById('stWind').innerHTML  = `${windMs.toFixed(1)}<small> m/s</small><br><small>${dirName(windFrom)}の風・突風 ${gust.toFixed(1)}</small>`;
-  document.getElementById('stCur').innerHTML   = `<span class="farr" style="transform:rotate(${Math.round(curDir-90)}deg)">➤</span>${curSpd.toFixed(2)}<small> kt</small>`;
-  document.getElementById('stDrift').innerHTML = `<span class="farr" style="transform:rotate(${Math.round(driftDir-90)}deg)">➤</span>${driftSpd.toFixed(2)}<small> kt</small>`;
-  document.getElementById('stWave').innerHTML  = `${wave.toFixed(2)}<small> m</small>`;
-
-  // 時刻バブル
-  const bub = document.getElementById('timeBubble');
-  bub.textContent = (state.offset===0 ? 'いま ' : '') + fmtTime(i);
-  const pct = Math.min(94, Math.max(6, state.offset/47*100));
-  bub.style.left = pct + '%';
-}
-function onHourChanged(){
-  state.hourIdx = Math.min(state.baseIdx + state.offset, state.times.length - 1);
-  document.getElementById('timeSlider').value = state.offset;
-  renderPanel();
-  updateBadges();
-}
-
-// ---- 速さ→色（青→緑→黄→橙→紫）とモード別スケール ----
-const COLOR_STOPS = [[0,[58,123,213]],[0.25,[39,174,96]],[0.5,[241,196,15]],[0.75,[230,126,34]],[1,[155,89,182]]];
-function speedColor(spd, maxScale, alpha){
-  const t = Math.max(0, Math.min(1, spd/maxScale));
-  for (let s=0; s<COLOR_STOPS.length-1; s++){
-    const [t0,c0] = COLOR_STOPS[s], [t1,c1] = COLOR_STOPS[s+1];
-    if (t <= t1 || s === COLOR_STOPS.length-2){
-      const f = t1 > t0 ? (t-t0)/(t1-t0) : 0;
-      const r = Math.round(c0[0]+(c1[0]-c0[0])*f);
-      const g = Math.round(c0[1]+(c1[1]-c0[1])*f);
-      const b = Math.round(c0[2]+(c1[2]-c0[2])*f);
-      return `rgba(${r},${g},${b},${alpha})`;
-    }
-  }
-  return `rgba(155,89,182,${alpha})`;
-}
-const SCALES = {
-  current: { name:'海流の速さ',     max:2.0, labels:['0','0.5','1.0','1.5','2.0+ kt'] },
-  drift:   { name:'船の流れの速さ', max:2.5, labels:['0','0.5','1.0','1.5','2.5+ kt'] },
-  wind:    { name:'風の速さ',       max:25,  labels:['0','5','10','15','20','30 m/s'] },
-};
-function updateScaleLegend(){
-  const sc = SCALES[state.mode];
-  document.getElementById('scaleName').textContent = sc.name;
-  document.getElementById('scaleLabels').innerHTML = sc.labels.map(l=>`<span>${l}</span>`).join('');
-}
-
-// ---- 流れの粒子アニメーション（約350個、短い軌跡つき） ----
-const P_COUNT = 350;
-let particles = [];
-function spawnPos(){
-  const b = map.getBounds();
-  const latMin = Math.max(b.getSouth(), 33.15), latMax = Math.min(b.getNorth(), 35.0);
-  const lonMin = Math.max(b.getWest(), 135.35), lonMax = Math.min(b.getEast(), 137.65);
-  if (latMax <= latMin || lonMax <= lonMin) return { lat:34.3, lon:136.6 };
-  return { lat: latMin + Math.random()*(latMax-latMin), lon: lonMin + Math.random()*(lonMax-lonMin) };
-}
-function newParticle(){
-  const p = spawnPos();
-  return { lat:p.lat, lon:p.lon, age:0, maxAge:70 + Math.random()*90, still:0, spd:0, trail:[] };
-}
-function startParticles(){
-  if (particles.length) return;
-  for (let k=0; k<P_COUNT; k++){ const p = newParticle(); p.age = Math.random()*p.maxAge; particles.push(p); }
-}
-function stepParticles(){
-  const i = state.hourIdx, kind = state.mode;
-  const dtSec = 480;   // 1ステップで進めるシミュレーション時間（秒）。描画を30fpsに間引く分、2倍にして見た目の速さを維持
+// 流れの粒子（潮流方向へ一様に流れるだけの軽い表現）
+const P_COUNT = 120;
+const particles = [];
+for (let i = 0; i < P_COUNT; i++) particles.push({ x: Math.random(), y: Math.random() });
+function stepParticles(dt){
+  const spdPx = state.curKt * 26;   // px/秒（潮流kt比例）
+  const vx = Math.sin(rad(state.curDeg)) * spdPx;
+  const vy = -Math.cos(rad(state.curDeg)) * spdPx;
   for (const p of particles){
-    const v = sampleField(p.lat, p.lon, i, kind);
-    const spd = mag(v);
-    p.spd = spd;
-    // 単位を m/s にそろえる（海流・ドリフトは kt、風は m/s）
-    const ms = kind === 'wind' ? v : { x:v.x*0.5144, y:v.y*0.5144 };
-    p.trail.push([p.lat, p.lon]);
-    if (p.trail.length > 5) p.trail.shift();
-    p.lat += (ms.y * dtSec) / 110540;
-    p.lon += (ms.x * dtSec) / (111320 * Math.cos(rad(p.lat)));
-    p.age += 2;   // ステップ頻度が半分になる分、加齢も2倍にして寿命（実時間）を維持
-    if (spd < 0.05) p.still++; else p.still = 0;
-    if (p.age > p.maxAge || p.still > 45 || p.lat < 33.1 || p.lat > 35.05 || p.lon < 135.3 || p.lon > 137.7){
-      Object.assign(p, newParticle());
-    }
+    p.x += vx * dt / Math.max(cssW, 1);
+    p.y += vy * dt / Math.max(cssH, 1);
+    if (p.x < -0.02) p.x += 1.04; if (p.x > 1.02) p.x -= 1.04;
+    if (p.y < -0.02) p.y += 1.04; if (p.y > 1.02) p.y -= 1.04;
+    p.px = p.x * cssW; p.py = p.y * cssH;
+    p.vx = vx; p.vy = vy;
   }
 }
-function drawParticles(){
-  const maxScale = SCALES[state.mode].max;
-  ctx.lineCap = 'round'; ctx.lineJoin = 'round'; ctx.lineWidth = 1.6;
-  // 色を8段階に量子化し、同色の粒子は1本のパスにまとめて stroke 回数を減らす
-  const BUCKETS = 8;
-  const buckets = Array.from({ length: BUCKETS }, ()=>[]);
+
+// 配置：予測した全移動量が画面中央に収まるよう開始位置を決める
+function layout(){
+  const c = compute();
+  const minDim = Math.min(cssW, cssH);
+  const scale = c.distKm > 0.001 ? (0.38 * minDim) / c.distKm : 40;   // px/km
+  const eKm = c.distKm * Math.sin(rad(c.deg));   // 全移動量の東成分
+  const nKm = c.distKm * Math.cos(rad(c.deg));   // 全移動量の北成分
+  const sx = cssW / 2 - eKm * scale * 0.5;
+  const sy = cssH / 2 + nKm * scale * 0.5;
+  return { c, scale, eKm, nKm, sx, sy };
+}
+function boatPos(L){
+  const frac = state.minutes ? state.elapsedMin / state.minutes : 0;
+  const e = L.eKm * frac, n = L.nKm * frac;
+  return { x: L.sx + e * L.scale, y: L.sy - n * L.scale, e, n };
+}
+
+function drawArrow(x0, y0, degTo, kt, color, width){
+  const minDim = Math.min(cssW, cssH);
+  const len = Math.min(kt * (100 / 3), 0.45 * minDim);
+  if (len < 3) return;
+  const dx = Math.sin(rad(degTo)), dy = -Math.cos(rad(degTo));
+  const x1 = x0 + dx * len, y1 = y0 + dy * len;
+  const ang = Math.atan2(y1 - y0, x1 - x0);
+  const head = Math.min(10, Math.max(5, len * 0.4));
+  ctx.strokeStyle = color; ctx.fillStyle = color; ctx.lineWidth = width; ctx.lineCap = 'round';
+  ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x1, y1); ctx.stroke();
+  ctx.beginPath();
+  ctx.moveTo(x1, y1);
+  ctx.lineTo(x1 - head * Math.cos(ang - 0.42), y1 - head * Math.sin(ang - 0.42));
+  ctx.lineTo(x1 - head * Math.cos(ang + 0.42), y1 - head * Math.sin(ang + 0.42));
+  ctx.closePath(); ctx.fill();
+}
+
+function drawCompass(){
+  const cx = cssW - 40, cy = 42, r = 25;
+  ctx.save();
+  ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2);
+  ctx.fillStyle = 'rgba(6,24,40,0.38)'; ctx.fill();
+  ctx.strokeStyle = 'rgba(220,240,255,0.4)'; ctx.lineWidth = 1.2; ctx.stroke();
+  ctx.font = '700 11px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillStyle = '#ffb020'; ctx.fillText('N', cx, cy - r + 8);
+  ctx.fillStyle = 'rgba(234,242,248,0.85)';
+  ctx.fillText('E', cx + r - 8, cy);
+  ctx.fillText('S', cx, cy + r - 8);
+  ctx.fillText('W', cx - r + 8, cy);
+  ctx.restore();
+}
+
+function draw(){
+  if (!cssW || !cssH) return;
+  ctx.clearRect(0, 0, cssW, cssH);
+  const L = layout();
+  const c = L.c;
+
+  // 粒子
+  ctx.lineWidth = 1.2; ctx.lineCap = 'round';
+  ctx.strokeStyle = 'rgba(200,230,255,0.35)';
   for (const p of particles){
-    if (p.trail.length < 2) continue;
-    const ratio = Math.max(0, Math.min(1, p.spd / maxScale));
-    buckets[Math.min(BUCKETS-1, Math.floor(ratio * BUCKETS))].push(p);
-  }
-  for (let b=0; b<BUCKETS; b++){
-    if (!buckets[b].length) continue;
+    if (p.px === undefined) continue;
     ctx.beginPath();
-    for (const p of buckets[b]){
-      const pts = p.trail.concat([[p.lat, p.lon]]);
-      pts.forEach((q, j)=>{
-        const pt = map.latLngToContainerPoint([q[0], q[1]]);
-        if (j === 0) ctx.moveTo(pt.x, pt.y); else ctx.lineTo(pt.x, pt.y);
-      });
-    }
-    ctx.strokeStyle = speedColor((b + 0.5) / BUCKETS * maxScale, maxScale, 0.75);   // バケット代表値の色
+    ctx.moveTo(p.px - (p.vx || 0) * 0.28, p.py - (p.vy || 0) * 0.28);
+    ctx.lineTo(p.px, p.py);
     ctx.stroke();
   }
-}
 
-// ---- 潮目・ヨレ分析（海流場の発散から自動検出。時刻インデックスごとにキャッシュ） ----
-const analysisCache = new Map();
-const A_LAT0 = 33.2, A_DLAT = 0.075, A_LON0 = 135.4, A_DLON = 0.09;
-const A_ROWS = 23, A_COLS = 24;
-function computeAnalysis(idx){
-  if (analysisCache.has(idx)) return analysisCache.get(idx);
-  const U = [], V = [], S = [];
-  for (let r=0; r<A_ROWS; r++){
-    U.push([]); V.push([]); S.push([]);
-    for (let c=0; c<A_COLS; c++){
-      const v = sampleVec(A_LAT0 + (r+0.5)*A_DLAT, A_LON0 + (c+0.5)*A_DLON, idx, 'cur');
-      U[r].push(v.x * 0.5144); V[r].push(v.y * 0.5144); S[r].push(mag(v));   // m/s と kt
-    }
-  }
-  // 発散 div = du/dx + dv/dy（1/s）。負が大きいほど収束＝潮目候補
-  const div = [], divs = [];
-  for (let r=0; r<A_ROWS; r++){
-    div.push(new Array(A_COLS).fill(0));
-    for (let c=0; c<A_COLS; c++){
-      if (r===0 || c===0 || r===A_ROWS-1 || c===A_COLS-1) continue;
-      const lat = A_LAT0 + (r+0.5)*A_DLAT;
-      const dx = 2 * A_DLON * 111320 * Math.cos(rad(lat));
-      const dy = 2 * A_DLAT * 110540;
-      const d = (U[r][c+1]-U[r][c-1])/dx + (V[r+1][c]-V[r-1][c])/dy;
-      div[r][c] = d; divs.push(d);
-    }
-  }
-  divs.sort((a,b)=>a-b);
-  const q16 = divs.length ? divs[Math.floor(divs.length * 0.16)] : 0;
-  const thr = Math.min(q16, -2e-6);   // 収束の上位約16% かつ 下限閾値より強いものだけ
-  const mark = [];
-  for (let r=0; r<A_ROWS; r++){
-    mark.push(new Array(A_COLS).fill(false));
-    for (let c=0; c<A_COLS; c++) if (div[r][c] < 0 && div[r][c] <= thr) mark[r][c] = true;
-  }
-  // 潮目：隣り合う収束セル同士を線でつなぐ（孤立セルは点）
-  const center = (r,c)=>[A_LAT0 + (r+0.5)*A_DLAT, A_LON0 + (c+0.5)*A_DLON];
-  const segs = [], dots = [];
-  for (let r=0; r<A_ROWS; r++) for (let c=0; c<A_COLS; c++){
-    if (!mark[r][c]) continue;
-    let linked = false;
-    if (c+1 < A_COLS && mark[r][c+1]){ segs.push([center(r,c), center(r,c+1)]); linked = true; }
-    if (r+1 < A_ROWS && mark[r+1][c]){ segs.push([center(r,c), center(r+1,c)]); linked = true; }
-    if (!linked && !(c>0 && mark[r][c-1]) && !(r>0 && mark[r-1][c])) dots.push(center(r,c));
-  }
-  // ヨレ：5×5近傍の平均より明らかに緩いセル（周囲に流れがある場所だけを対象）
-  const yore = [];
-  for (let r=0; r<A_ROWS; r++) for (let c=0; c<A_COLS; c++){
-    let sum = 0, cnt = 0;
-    for (let dr=-2; dr<=2; dr++) for (let dc=-2; dc<=2; dc++){
-      const rr = r+dr, cc = c+dc;
-      if (rr<0 || cc<0 || rr>=A_ROWS || cc>=A_COLS) continue;
-      sum += S[rr][cc]; cnt++;
-    }
-    const avg = sum / cnt;
-    if (avg > 0.25 && S[r][c] < avg*0.55 && S[r][c] < 0.5) yore.push(center(r,c));
-  }
-  const res = { segs, dots, yore };
-  analysisCache.set(idx, res);
-  return res;
-}
-function drawAnalysis(){
-  const a = computeAnalysis(state.hourIdx);
-  if (a.segs.length || a.dots.length){
+  const hasFlow = c.spd >= 0.005 && c.distKm > 0.001;
+  const endX = L.sx + L.eKm * L.scale, endY = L.sy - L.nKm * L.scale;
+
+  // 予測経路（破線）
+  if (hasFlow){
     ctx.save();
-    ctx.lineCap = 'round';
-    // 2パス描画：太い半透明 → 細い明色 でグロー表現
-    for (const [w, col] of [[5, 'rgba(255,185,40,0.30)'], [1.8, '#ffd968']]){
+    ctx.setLineDash([6, 5]);
+    ctx.strokeStyle = 'rgba(234,242,248,0.55)'; ctx.lineWidth = 1.6;
+    ctx.beginPath(); ctx.moveTo(L.sx, L.sy); ctx.lineTo(endX, endY); ctx.stroke();
+    ctx.restore();
+  }
+
+  // ベクトル矢印（開始位置から）
+  drawArrow(L.sx, L.sy, state.curDeg, state.curKt, '#4dd8ff', 2.5);          // 潮流
+  drawArrow(L.sx, L.sy, c.windDriftDeg, c.windDriftKt, '#a8c8ff', 2.5);      // 風圧流
+  if (hasFlow) drawArrow(L.sx, L.sy, c.deg, c.spd, '#ffb020', 3.5);          // 合成（船の流れ）
+
+  // 開始位置マーカー
+  ctx.strokeStyle = '#eaf2f8'; ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.arc(L.sx, L.sy, 7, 0, Math.PI * 2); ctx.stroke();
+  ctx.fillStyle = '#eaf2f8';
+  ctx.beginPath(); ctx.arc(L.sx, L.sy, 2, 0, Math.PI * 2); ctx.fill();
+  ctx.font = '600 11px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
+  ctx.fillText('開始位置', L.sx, L.sy - 11);
+
+  // 予測終了位置マーカー
+  if (hasFlow){
+    ctx.strokeStyle = '#ffb020'; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.arc(endX, endY, 8, 0, Math.PI * 2); ctx.stroke();
+    ctx.beginPath(); ctx.arc(endX, endY, 3.5, 0, Math.PI * 2);
+    ctx.fillStyle = '#ffb020'; ctx.fill();
+    ctx.font = '600 11px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+    ctx.fillText(`${state.minutes}分後`, endX, endY + 11);
+  }
+
+  // 船の軌跡
+  if (trail.length > 1){
+    for (let i = 0; i < trail.length; i++){
+      const t = trail[i];
+      const a = 0.08 + 0.4 * (i / trail.length);
+      ctx.fillStyle = `rgba(255,176,32,${a.toFixed(3)})`;
       ctx.beginPath();
-      for (const [p, q] of a.segs){
-        const P = map.latLngToContainerPoint(p), Q = map.latLngToContainerPoint(q);
-        ctx.moveTo(P.x, P.y); ctx.lineTo(Q.x, Q.y);
-      }
-      ctx.strokeStyle = col; ctx.lineWidth = w; ctx.stroke();
+      ctx.arc(L.sx + t.e * L.scale, L.sy - t.n * L.scale, 2.2, 0, Math.PI * 2);
+      ctx.fill();
     }
-    ctx.fillStyle = '#ffd968';
-    for (const p of a.dots){
-      const P = map.latLngToContainerPoint(p);
-      ctx.beginPath(); ctx.arc(P.x, P.y, 2.6, 0, Math.PI*2); ctx.fill();
-    }
-    ctx.restore();
   }
-  if (a.yore.length){
-    ctx.save();
-    ctx.strokeStyle = 'rgba(80,200,255,0.85)'; ctx.lineWidth = 1.6;
-    for (const p of a.yore){
-      const P = map.latLngToContainerPoint(p);
-      const Q = map.latLngToContainerPoint([p[0] + A_DLAT*0.5, p[1]]);
-      const rPx = Math.max(4, Math.min(16, Math.abs(Q.y - P.y) * 0.55));
-      ctx.beginPath(); ctx.arc(P.x, P.y, rPx, 0, Math.PI*2); ctx.stroke();
-    }
-    ctx.restore();
-  }
+
+  // 船
+  const bp = boatPos(L);
+  ctx.font = '30px serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillText('⛵', bp.x, bp.y);
+
+  drawCompass();
 }
 
-// ---- 描画ループ ----
-let frameTick = 0;
-function frame(){
-  if (state.ready && ctx && map){
-    frameTick++;
-    if (frameTick % 2 === 0){   // 描画は30fps相当に間引く（間引きフレームでは前回描画を保持）
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-      if (state.spots) drawAnalysis();
-      stepParticles();
-      drawParticles();
-    }
-  }
-  requestAnimationFrame(frame);
-}
-
-// ---- 操作系 ----
-document.getElementById('timeSlider').addEventListener('input', e=>{
-  state.offset = Number(e.target.value);
-  onHourChanged();
-});
-const btnPlay = document.getElementById('btnPlay');
-btnPlay.onclick = ()=>{
-  state.playing = !state.playing;
-  btnPlay.textContent = state.playing ? '⏸' : '▶';
+// ---- アニメーションループ ----
+let lastTs = null;
+function frame(ts){
+  if (lastTs === null) lastTs = ts;
+  const dt = Math.min((ts - lastTs) / 1000, 0.05);
+  lastTs = ts;
+  stepParticles(dt);
   if (state.playing){
-    state.playTimer = setInterval(()=>{
-      state.offset = state.offset >= 47 ? 0 : state.offset + 1;
-      onHourChanged();
-    }, 1000);
-  } else {
-    clearInterval(state.playTimer);
+    state.elapsedMin += dt * (state.minutes / PLAY_SECONDS);
+    if (state.elapsedMin >= state.minutes){
+      state.elapsedMin = state.minutes;
+      setPlaying(false);
+    }
+    const L = layout();
+    const bp = boatPos(L);
+    trail.push({ e: bp.e, n: bp.n });
+    if (trail.length > TRAIL_MAX) trail.shift();
+    updateElapsedLabel();
   }
-};
-document.getElementById('modeSeg').addEventListener('click', e=>{
-  const b = e.target.closest('button'); if (!b) return;
-  state.mode = b.dataset.mode;
-  [...e.currentTarget.children].forEach(x=>x.classList.toggle('on', x===b));
-  updateScaleLegend();
-});
-document.getElementById('chkSpots').addEventListener('change', e=>{ state.spots = e.target.checked; });
-document.getElementById('chkSea').addEventListener('change', e=>{
-  if (!seamarkLayer || !map) return;
-  if (e.target.checked) seamarkLayer.addTo(map); else map.removeLayer(seamarkLayer);
-});
-document.getElementById('btnReset').onclick = ()=>{
-  const a = AREAS[state.area];
-  moveBoat(a.lat, a.lon, a.name);
-  map.flyTo([a.lat, a.lon], Math.max(map.getZoom(), 9), { duration:0.6 });
-};
-document.getElementById('btnZoomIn').onclick  = ()=>map.zoomIn();
-document.getElementById('btnZoomOut').onclick = ()=>map.zoomOut();
-document.getElementById('btnReload').onclick  = ()=>location.reload();
-document.getElementById('panelHandle').onclick = ()=>{
-  const p = document.getElementById('panel');
-  const c = p.classList.toggle('collapsed');
-  document.getElementById('panelHandleTxt').textContent = c ? '▲ パネルを出す' : '▼ 隠す';
-};
-
-// ---- 起動 ----
-if (typeof L === 'undefined'){
-  document.getElementById('loading').hidden = true;
-  document.getElementById('errMsg').textContent = '地図ライブラリ（Leaflet）を読み込めませんでした。通信環境を確認して、再読み込みしてください。';
-  document.getElementById('errBanner').hidden = false;
-} else {
-  initMap();
-  updateScaleLegend();
-  loadAll();
+  draw();
   requestAnimationFrame(frame);
 }
+
+// ---- 初期化 ----
+updateReadouts();
+updateResults();
+requestAnimationFrame(frame);
 </script>
 </body>
 </html>
