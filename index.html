@@ -60,13 +60,10 @@
   .btn{padding:8px 12px; border-radius:10px; border:1px solid var(--line); background:var(--panel2); color:var(--text); font-size:13px; white-space:nowrap}
   .stats{display:grid; grid-template-columns:repeat(4,1fr); gap:6px}
   .stat{background:var(--panel2); border-radius:10px; padding:7px 6px; text-align:center}
+  .farr{display:inline-block; color:#7fd0ff; font-size:15px; margin-right:3px; vertical-align:-1px}
   .stat .k{font-size:10px; color:var(--sub)}
   .stat .v{font-size:15px; font-weight:700; margin-top:2px; line-height:1.25}
   .stat .v small{font-size:10px; color:var(--sub); font-weight:600}
-  .comments{font-size:12.5px; line-height:1.65; margin:0 0 8px; padding-left:17px; color:var(--text)}
-  .comments .err{color:var(--bad)}
-  .driftText{font-size:12.5px; line-height:1.7; margin:0 0 10px; color:var(--sub)}
-  .driftText b{color:var(--text)}
   /* 時刻スライダー＋オレンジの時刻バブル */
   .timeRow{gap:8px}
   .play{width:42px; height:42px; border-radius:50%; border:none; background:var(--accent); color:#231600; font-size:16px; flex:0 0 auto}
@@ -124,9 +121,6 @@
     <div class="stat"><div class="k">船の流れ</div><div class="v" id="stDrift">--</div></div>
     <div class="stat"><div class="k">波高</div><div class="v" id="stWave">--</div></div>
   </div>
-
-  <ul class="comments" id="comments"><li>予報を取得中…</li></ul>
-  <p class="driftText" id="driftText"></p>
 
   <div class="prow timeRow">
     <button class="play" id="btnPlay" aria-label="再生">▶</button>
@@ -309,7 +303,6 @@ async function loadAll(){
     loading.hidden = true;
     document.getElementById('errMsg').textContent = '予報データを取得できませんでした。通信環境を確認して、再読み込みしてください。';
     document.getElementById('errBanner').hidden = false;
-    document.getElementById('comments').innerHTML = '<li class="err">予報データを取得できませんでした。</li>';
   }
 }
 
@@ -430,29 +423,9 @@ function renderPanel(){
   const gust = sampleScalar(b.lat, b.lon, i, 'gust');
 
   document.getElementById('stWind').innerHTML  = `${windMs.toFixed(1)}<small> m/s</small><br><small>${dirName(windFrom)}の風・突風 ${gust.toFixed(1)}</small>`;
-  document.getElementById('stCur').innerHTML   = `${curSpd.toFixed(2)}<small> kt</small><br><small>${dirName(curDir)}へ流れる</small>`;
-  document.getElementById('stDrift').innerHTML = `${driftSpd.toFixed(2)}<small> kt</small><br><small>${dirName(driftDir)}へ流れる</small>`;
+  document.getElementById('stCur').innerHTML   = `<span class="farr" style="transform:rotate(${Math.round(curDir-90)}deg)">➤</span>${curSpd.toFixed(2)}<small> kt</small>`;
+  document.getElementById('stDrift').innerHTML = `<span class="farr" style="transform:rotate(${Math.round(driftDir-90)}deg)">➤</span>${driftSpd.toFixed(2)}<small> kt</small>`;
   document.getElementById('stWave').innerHTML  = `${wave.toFixed(2)}<small> m</small>`;
-
-  // 状態コメント（風・波・流れの値から作る事実ベースの注記のみ）
-  const notes = [];
-  if (windMs >= 8) notes.push(`風 ${windMs.toFixed(1)} m/s と強め。流し釣りは早めに切り上げ判断を`);
-  else if (windMs >= 5) notes.push('風は中程度。ドリフトはやや速め');
-  else notes.push('風は穏やか');
-  if (wave >= 1.2) notes.push(`波高 ${wave.toFixed(1)} m。うねりに注意`);
-  if (driftSpd > 1.0) notes.push(`ドリフト ${driftSpd.toFixed(2)} ノットと速い。ジグは重めが無難`);
-  else if (driftSpd < 0.2) notes.push('流れが弱く船が止まりがち。潮の変わり目を待つのも手');
-  const diff = angDiff(windTo, curDir);
-  if (diff > 135 && windMs >= 5 && curSpd >= 0.3) notes.push('風と海流が逆向き（二枚潮気味）。波が立ちやすく、ラインの角度にも注意');
-  if (diff <= 45) notes.push('風と海流が同じ向き（追い潮）。船が速く流れる想定で');
-  document.getElementById('comments').innerHTML = notes.map(n=>`<li>${n}</li>`).join('');
-
-  // ドリフト予測（60分流した場合。風圧流2%）
-  const distKm = driftSpd * 1.852;
-  const back = (driftDir+180)%360;
-  document.getElementById('driftText').innerHTML =
-    `このまま流すと60分で <b>${dirName(driftDir)}（${Math.round(driftDir)}°）へ約 ${distKm.toFixed(2)} km</b> 流される見込みです。` +
-    `狙いのポイントに合わせるなら、ポイントから <b>${dirName(back)}方向に約 ${distKm.toFixed(2)} km</b> の位置から流し始めるのが目安です。`;
 
   // 時刻バブル
   const bub = document.getElementById('timeBubble');
