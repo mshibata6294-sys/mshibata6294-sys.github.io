@@ -258,10 +258,12 @@ function convertPoint(p, w, m){
 // 地点の重複判定キー（座標）と、未取得地点だけを state へ追加するマージ用ヘルパー
 const pointKey = (lat, lon) => `${lat},${lon}`;
 function addPoints(list){
+  let added = false;
   for (const p of list){
     const k = pointKey(p.lat, p.lon);
-    if (!state.pointMap.has(k)){ state.pointMap.set(k, p); state.points.push(p); }
+    if (!state.pointMap.has(k)){ state.pointMap.set(k, p); state.points.push(p); added = true; }
   }
+  if (added) fieldCache.clear();   // 場が変わるので粒子用グリッドも作り直す
 }
 // 複数地点をまとめて取得（1リクエスト最大20地点、チャンクは並列実行）。天気は必須、海洋は失敗時ゼロ値で継続
 async function fetchPoints(list){
@@ -328,6 +330,7 @@ async function loadAll(){
       if (rest.length){
         addPoints(rest);
         analysisCache.clear();   // 場が変わるので潮目・ヨレを再計算させる
+        fieldCache.clear();
         renderPanel();
       }
       note.textContent = '全58地点のデータで表示中。';
@@ -437,6 +440,39 @@ function sampleScalar(lat, lon, i, key){
   return sw ? sv/sw : 0;
 }
 
+// ---- 粒子用の流れ場グリッド（IDWを毎回計算せず、格子点に事前計算して双線形補間する） ----
+const fieldCache = new Map();   // キー `${hourIdx}:${mode}`
+const F_LAT0 = 33.15, F_DLAT = 0.05, F_LON0 = 135.35, F_DLON = 0.06;
+const F_ROWS = Math.round((35.0 - F_LAT0) / F_DLAT) + 1;    // 格子点 lat 33.15〜35.0
+const F_COLS = Math.floor((137.65 - F_LON0) / F_DLON) + 1;  // 格子点 lon 135.35〜137.63
+function getField(i, kind){
+  const key = `${i}:${kind}`;
+  let f = fieldCache.get(key);
+  if (f) return f;
+  const data = new Float32Array(F_ROWS * F_COLS * 2);
+  for (let r=0; r<F_ROWS; r++){
+    for (let c=0; c<F_COLS; c++){
+      const v = sampleVec(F_LAT0 + r*F_DLAT, F_LON0 + c*F_DLON, i, kind);
+      const o = (r*F_COLS + c) * 2;
+      data[o] = v.x; data[o+1] = v.y;
+    }
+  }
+  f = { lat0:F_LAT0, lon0:F_LON0, dLat:F_DLAT, dLon:F_DLON, rows:F_ROWS, cols:F_COLS, data };
+  fieldCache.set(key, f);
+  return f;
+}
+function sampleField(lat, lon, i, kind){
+  const f = getField(i, kind);
+  const fr = (lat - f.lat0) / f.dLat, fc = (lon - f.lon0) / f.dLon;
+  if (fr < 0 || fc < 0 || fr > f.rows-1 || fc > f.cols-1) return sampleVec(lat, lon, i, kind);   // 格子の外は従来のIDW
+  const r0 = Math.min(Math.floor(fr), f.rows-2), c0 = Math.min(Math.floor(fc), f.cols-2);
+  const tr = fr - r0, tc = fc - c0, d = f.data;
+  const o00 = (r0*f.cols + c0) * 2, o01 = o00 + 2, o10 = o00 + f.cols*2, o11 = o10 + 2;
+  const x = (d[o00]  *(1-tr) + d[o10]  *tr) * (1-tc) + (d[o01]  *(1-tr) + d[o11]  *tr) * tc;
+  const y = (d[o00+1]*(1-tr) + d[o10+1]*tr) * (1-tc) + (d[o01+1]*(1-tr) + d[o11+1]*tr) * tc;
+  return { x, y };
+}
+
 // ---- パネル描画 ----
 function fmtTime(idx){
   const t = new Date(state.times[idx]);
@@ -499,8 +535,8 @@ function updateScaleLegend(){
   document.getElementById('scaleLabels').innerHTML = sc.labels.map(l=>`<span>${l}</span>`).join('');
 }
 
-// ---- 流れの粒子アニメーション（約600個、短い軌跡つき） ----
-const P_COUNT = 600;
+// ---- 流れの粒子アニメーション（約350個、短い軌跡つき） ----
+const P_COUNT = 350;
 let particles = [];
 function spawnPos(){
   const b = map.getBounds();
@@ -519,18 +555,18 @@ function startParticles(){
 }
 function stepParticles(){
   const i = state.hourIdx, kind = state.mode;
-  const dtSec = 240;   // 1フレームで進めるシミュレーション時間（秒）
+  const dtSec = 480;   // 1ステップで進めるシミュレーション時間（秒）。描画を30fpsに間引く分、2倍にして見た目の速さを維持
   for (const p of particles){
-    const v = sampleVec(p.lat, p.lon, i, kind);
+    const v = sampleField(p.lat, p.lon, i, kind);
     const spd = mag(v);
     p.spd = spd;
     // 単位を m/s にそろえる（海流・ドリフトは kt、風は m/s）
     const ms = kind === 'wind' ? v : { x:v.x*0.5144, y:v.y*0.5144 };
     p.trail.push([p.lat, p.lon]);
-    if (p.trail.length > 7) p.trail.shift();
+    if (p.trail.length > 5) p.trail.shift();
     p.lat += (ms.y * dtSec) / 110540;
     p.lon += (ms.x * dtSec) / (111320 * Math.cos(rad(p.lat)));
-    p.age++;
+    p.age += 2;   // ステップ頻度が半分になる分、加齢も2倍にして寿命（実時間）を維持
     if (spd < 0.05) p.still++; else p.still = 0;
     if (p.age > p.maxAge || p.still > 45 || p.lat < 33.1 || p.lat > 35.05 || p.lon < 135.3 || p.lon > 137.7){
       Object.assign(p, newParticle());
@@ -540,15 +576,25 @@ function stepParticles(){
 function drawParticles(){
   const maxScale = SCALES[state.mode].max;
   ctx.lineCap = 'round'; ctx.lineJoin = 'round'; ctx.lineWidth = 1.6;
+  // 色を8段階に量子化し、同色の粒子は1本のパスにまとめて stroke 回数を減らす
+  const BUCKETS = 8;
+  const buckets = Array.from({ length: BUCKETS }, ()=>[]);
   for (const p of particles){
     if (p.trail.length < 2) continue;
-    const pts = p.trail.concat([[p.lat, p.lon]]);
+    const ratio = Math.max(0, Math.min(1, p.spd / maxScale));
+    buckets[Math.min(BUCKETS-1, Math.floor(ratio * BUCKETS))].push(p);
+  }
+  for (let b=0; b<BUCKETS; b++){
+    if (!buckets[b].length) continue;
     ctx.beginPath();
-    pts.forEach((q, j)=>{
-      const pt = map.latLngToContainerPoint([q[0], q[1]]);
-      if (j === 0) ctx.moveTo(pt.x, pt.y); else ctx.lineTo(pt.x, pt.y);
-    });
-    ctx.strokeStyle = speedColor(p.spd, maxScale, 0.75);
+    for (const p of buckets[b]){
+      const pts = p.trail.concat([[p.lat, p.lon]]);
+      pts.forEach((q, j)=>{
+        const pt = map.latLngToContainerPoint([q[0], q[1]]);
+        if (j === 0) ctx.moveTo(pt.x, pt.y); else ctx.lineTo(pt.x, pt.y);
+      });
+    }
+    ctx.strokeStyle = speedColor((b + 0.5) / BUCKETS * maxScale, maxScale, 0.75);   // バケット代表値の色
     ctx.stroke();
   }
 }
@@ -649,12 +695,16 @@ function drawAnalysis(){
 }
 
 // ---- 描画ループ ----
+let frameTick = 0;
 function frame(){
   if (state.ready && ctx && map){
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-    if (state.spots) drawAnalysis();
-    stepParticles();
-    drawParticles();
+    frameTick++;
+    if (frameTick % 2 === 0){   // 描画は30fps相当に間引く（間引きフレームでは前回描画を保持）
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      if (state.spots) drawAnalysis();
+      stepParticles();
+      drawParticles();
+    }
   }
   requestAnimationFrame(frame);
 }
