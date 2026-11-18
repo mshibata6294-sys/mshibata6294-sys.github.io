@@ -218,7 +218,7 @@ const angDiff = (a,b) => { const d = Math.abs(a-b)%360; return d>180 ? 360-d : d
 const nz = (v) => (v==null || Number.isNaN(v)) ? 0 : v;   // null は 0 として扱う（陸地点など）
 
 let state = {
-  ready:false, points:[], times:null, baseIdx:0, offset:0, hourIdx:0,
+  ready:false, points:[], pointMap:new Map(), times:null, baseIdx:0, offset:0, hourIdx:0,
   area:0, boat:{ ...AREAS[0] }, posName:AREAS[0].name,
   mode:'current', spots:true, wp:2,           // wp=風圧流の係数(%)。従来プロトタイプの既定値
   playing:false, playTimer:null,
@@ -255,55 +255,86 @@ function convertPoint(p, w, m){
     curDir:  col(mh.ocean_current_direction, v=>nz(v)), // 流れる先
   };
 }
-// 複数地点をまとめて取得（1リクエスト最大20地点）。天気は必須、海洋は失敗時ゼロ値で継続
+// 地点の重複判定キー（座標）と、未取得地点だけを state へ追加するマージ用ヘルパー
+const pointKey = (lat, lon) => `${lat},${lon}`;
+function addPoints(list){
+  for (const p of list){
+    const k = pointKey(p.lat, p.lon);
+    if (!state.pointMap.has(k)){ state.pointMap.set(k, p); state.points.push(p); }
+  }
+}
+// 複数地点をまとめて取得（1リクエスト最大20地点、チャンクは並列実行）。天気は必須、海洋は失敗時ゼロ値で継続
 async function fetchPoints(list){
-  const out = [];
+  const jobs = [];
   for (let s=0; s<list.length; s+=20){
     const ch = list.slice(s, s+20);
-    const lats = ch.map(p=>p.lat).join(','), lons = ch.map(p=>p.lon).join(',');
-    const wUrl = `https://api.open-meteo.com/v1/forecast?latitude=${lats}&longitude=${lons}&hourly=wind_speed_10m,wind_direction_10m,wind_gusts_10m&timezone=Asia%2FTokyo&forecast_days=3`;
-    const mUrl = `https://marine-api.open-meteo.com/v1/marine?latitude=${lats}&longitude=${lons}&hourly=wave_height,ocean_current_velocity,ocean_current_direction&timezone=Asia%2FTokyo&forecast_days=3`;
-    const [w, m] = await Promise.all([ fetchJSON(wUrl), fetchJSON(mUrl).catch(()=>null) ]);
-    const wArr = Array.isArray(w) ? w : [w];
-    const mArr = m ? (Array.isArray(m) ? m : [m]) : [];
-    ch.forEach((p, idx)=>{ if (wArr[idx]) out.push(convertPoint(p, wArr[idx], mArr[idx] || null)); });
+    jobs.push((async ()=>{
+      const part = [];
+      const lats = ch.map(p=>p.lat).join(','), lons = ch.map(p=>p.lon).join(',');
+      const wUrl = `https://api.open-meteo.com/v1/forecast?latitude=${lats}&longitude=${lons}&hourly=wind_speed_10m,wind_direction_10m,wind_gusts_10m&timezone=Asia%2FTokyo&forecast_days=3`;
+      const mUrl = `https://marine-api.open-meteo.com/v1/marine?latitude=${lats}&longitude=${lons}&hourly=wave_height,ocean_current_velocity,ocean_current_direction&timezone=Asia%2FTokyo&forecast_days=3`;
+      const [w, m] = await Promise.all([ fetchJSON(wUrl), fetchJSON(mUrl).catch(()=>null) ]);
+      const wArr = Array.isArray(w) ? w : [w];
+      const mArr = m ? (Array.isArray(m) ? m : [m]) : [];
+      ch.forEach((p, idx)=>{ if (wArr[idx]) part.push(convertPoint(p, wArr[idx], mArr[idx] || null)); });
+      return part;
+    })());
   }
-  return out;
+  const parts = await Promise.all(jobs);   // チャンクの順序どおりに結合する
+  return parts.reduce((acc, part)=>acc.concat(part), []);
 }
-// 段階読み込み：第1段階=表示16地点で即表示、第2段階=格子42地点を背景取得して精密化
+// 段階読み込み：A=主要4地点で即表示、B=表示16地点を背景取得、C=格子42地点を背景取得して精密化
 async function loadAll(){
   const loading = document.getElementById('loading');
+  const note = document.getElementById('stageNote');
   loading.hidden = false;
   document.getElementById('errBanner').hidden = true;
+  state.points = [];
+  state.pointMap = new Map();
   try{
-    const first = await fetchPoints(POINTS16);
+    // Stage A：主要4地点（AREAS）のみを先行取得し、最速で表示する
+    const first = await fetchPoints(AREAS);
     if (!first.length || !first[0].times.length) throw new Error('empty response');
-    state.points = first;
+    addPoints(first);
     state.times = first[0].times;
     const now = new Date(); let base = 0;
     state.times.forEach((t,i)=>{ if (new Date(t) <= now) base = i; });
     state.baseIdx = base; state.offset = 0; state.hourIdx = base;
     state.ready = true;
     loading.hidden = true;
-    document.getElementById('stageNote').textContent = '表示地点のデータで表示中。格子データを読み込み中…';
+    note.textContent = '主要地点のデータで表示中。残りを読み込み中…';
     buildBadges();
     onHourChanged();
     startParticles();
-    fetchPoints(GRID42).then(rest=>{
-      if (rest.length){
-        state.points = state.points.concat(rest);
-        analysisCache.clear();   // 場が変わるので潮目・ヨレを再計算させる
-        renderPanel();
-      }
-      document.getElementById('stageNote').textContent = '全58地点のデータで表示中。';
-    }).catch(()=>{
-      document.getElementById('stageNote').textContent = '格子データの取得に失敗したため、表示地点のデータで表示中。';
-    });
   }catch(e){
     loading.hidden = true;
     document.getElementById('errMsg').textContent = '予報データを取得できませんでした。通信環境を確認して、再読み込みしてください。';
     document.getElementById('errBanner').hidden = false;
+    return;
   }
+  // Stage B → C：背景で順に取得する（Bが失敗してもCは試みる）
+  (async ()=>{
+    try{
+      const rest16 = await fetchPoints(POINTS16);
+      if (rest16.length){
+        addPoints(rest16);   // 主要4地点は座標キーで重複排除される
+        buildBadges();
+        renderPanel();
+      }
+      note.textContent = '表示地点のデータで表示中。格子データを読み込み中…';
+    }catch(e){ /* Stage B失敗時はそのままStage Cへ進む */ }
+    try{
+      const rest = await fetchPoints(GRID42);
+      if (rest.length){
+        addPoints(rest);
+        analysisCache.clear();   // 場が変わるので潮目・ヨレを再計算させる
+        renderPanel();
+      }
+      note.textContent = '全58地点のデータで表示中。';
+    }catch(e){
+      note.textContent = '格子データの取得に失敗したため、表示地点のデータで表示中。';
+    }
+  })();
 }
 
 // ---- 地図（Leaflet + OSM + OpenSeaMap 海図レイヤー） ----
@@ -349,18 +380,19 @@ function badgeHTML(p, i){
 function buildBadges(){
   badgeMarkers.forEach(mk=>map.removeLayer(mk));
   badgeMarkers = [];
-  POINTS16.forEach((pt, k)=>{
-    const p = state.points[k]; if (!p) return;
+  POINTS16.forEach((pt)=>{
+    const p = state.pointMap.get(pointKey(pt.lat, pt.lon)); if (!p) return;
     const mk = L.marker([pt.lat, pt.lon], {
       icon: L.divIcon({ className:'badgeWrap', html:badgeHTML(p, state.hourIdx), iconSize:[36,36], iconAnchor:[18,18] }),
     }).addTo(map);
+    mk._key = pointKey(pt.lat, pt.lon);
     mk.on('click', ()=>moveBoat(pt.lat, pt.lon, pt.name));
     badgeMarkers.push(mk);
   });
 }
 function updateBadges(){
-  badgeMarkers.forEach((mk, k)=>{
-    const p = state.points[k]; if (!p) return;
+  badgeMarkers.forEach((mk)=>{
+    const p = state.pointMap.get(mk._key); if (!p) return;
     mk.setIcon(L.divIcon({ className:'badgeWrap', html:badgeHTML(p, state.hourIdx), iconSize:[36,36], iconAnchor:[18,18] }));
   });
 }
