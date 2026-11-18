@@ -21,16 +21,8 @@
   #flowCanvas{position:absolute; top:0; left:0; pointer-events:none; z-index:500}
   .leaflet-container{font-family:inherit}
 
-  /* エリアチップ（上部バー） */
-  #chips{position:fixed; top:0; left:0; right:0; z-index:1200; display:flex; gap:8px; overflow-x:auto;
-    padding:calc(env(safe-area-inset-top) + 8px) 12px 8px; scrollbar-width:none; pointer-events:none}
-  #chips::-webkit-scrollbar{display:none}
-  .chip{flex:0 0 auto; pointer-events:auto; padding:8px 14px; border-radius:999px; border:1px solid var(--line);
-    background:rgba(10,26,47,.88); color:var(--text); font-size:13px; backdrop-filter:blur(4px)}
-  .chip.on{background:var(--accent); color:#231600; border-color:var(--accent); font-weight:700}
-
   /* ズームボタン（右側） */
-  #zoomBtns{position:fixed; right:10px; top:calc(env(safe-area-inset-top) + 64px); z-index:1200; display:flex; flex-direction:column; gap:6px}
+  #zoomBtns{position:fixed; right:10px; top:calc(env(safe-area-inset-top) + 12px); z-index:1200; display:flex; flex-direction:column; gap:6px}
   #zoomBtns button{width:40px; height:40px; border-radius:10px; border:1px solid var(--line);
     background:rgba(10,26,47,.88); color:var(--text); font-size:20px; line-height:1}
 
@@ -104,7 +96,6 @@
 <body>
 <div id="map"></div>
 
-<nav id="chips"></nav>
 
 <div id="zoomBtns">
   <button id="btnZoomIn" aria-label="拡大">＋</button>
@@ -360,18 +351,6 @@ function fitCanvas(){
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 }
 
-// ---- エリアチップ ----
-function buildChips(){
-  const el = document.getElementById('chips');
-  AREAS.forEach((a, i)=>{
-    const b = document.createElement('button');
-    b.className = 'chip' + (i===0 ? ' on' : '');
-    b.textContent = a.name;
-    b.onclick = ()=>{ moveBoat(a.lat, a.lon, a.name); map.flyTo([a.lat, a.lon], Math.max(map.getZoom(), 9), { duration:0.6 }); };
-    el.appendChild(b);
-  });
-}
-
 // ---- 地点バッジ（海流の向き矢印＋速さ） ----
 function badgeHTML(p, i){
   return `<div class="badge"><span class="barr" style="transform:rotate(${Math.round(p.curDir[i]-90)}deg)">➤</span><span class="bspd">${p.curKt[i].toFixed(1)}</span></div>`;
@@ -402,7 +381,6 @@ function moveBoat(lat, lon, name){
   if (boatMarker) boatMarker.setLatLng([lat, lon]);
   const ai = AREAS.findIndex(a=>Math.abs(a.lat-lat) < 1e-6 && Math.abs(a.lon-lon) < 1e-6);
   if (ai >= 0) state.area = ai;   // リセット先は最後に選んだエリア
-  [...document.getElementById('chips').children].forEach((c, j)=>c.classList.toggle('on', j===ai));
   renderPanel();
 }
 
@@ -723,7 +701,6 @@ if (typeof L === 'undefined'){
   document.getElementById('errMsg').textContent = '地図ライブラリ（Leaflet）を読み込めませんでした。通信環境を確認して、再読み込みしてください。';
   document.getElementById('errBanner').hidden = false;
 } else {
-  buildChips();
   initMap();
   updateScaleLegend();
   loadAll();
