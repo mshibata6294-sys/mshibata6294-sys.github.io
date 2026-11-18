@@ -3,17 +3,17 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>メモ帳</title>
+<title>メモパッド</title>
 <style>
   :root{
-    --bg:#0b1c2c;
-    --panel:#12293d;
-    --panel2:#0e2233;
-    --text:#eaf2f8;
-    --sub:#9db4c6;
-    --accent:#ffb020;
-    --danger:#ff6b6b;
-    --border:rgba(157,180,198,.18);
+    --bg:#ede6d6;
+    --paper:#fffdf6;
+    --text:#33302a;
+    --sub:#8a8272;
+    --accent:#d97b06;
+    --danger:#c0392b;
+    --border:rgba(51,48,42,.14);
+    --line:rgba(120,110,85,.20);
   }
   *{box-sizing:border-box; margin:0; padding:0; -webkit-tap-highlight-color:transparent}
   html,body{height:100%}
@@ -23,10 +23,9 @@
     padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
     display:flex; flex-direction:column;
     overflow:hidden;
+    user-select:none; -webkit-user-select:none;
   }
   .hidden{display:none !important}
-
-  /* ---------- 共通 ---------- */
   button{font-family:inherit; cursor:pointer; border:none; background:none; color:var(--text)}
   .view{display:flex; flex-direction:column; flex:1; min-height:0}
 
@@ -37,346 +36,488 @@
   }
   #listView header h1{font-size:24px; font-weight:700; letter-spacing:.02em}
   #noteCount{font-size:13px; color:var(--sub)}
-  .searchWrap{padding:0 16px 10px}
-  #searchInput{
-    width:100%; padding:11px 14px; font-size:16px;
-    background:var(--panel2); color:var(--text);
-    border:1px solid var(--border); border-radius:12px; outline:none;
+  #listMain{flex:1; overflow-y:auto; padding:4px 14px 96px}
+  #emptyState{
+    text-align:center; color:var(--sub); font-size:15px;
+    padding:64px 20px; line-height:1.8;
   }
-  #searchInput::placeholder{color:var(--sub)}
-  #searchInput:focus{border-color:var(--accent)}
-  #noteList{
-    flex:1; overflow-y:auto; padding:2px 16px 96px;
-    display:flex; flex-direction:column; gap:10px;
+  #cards{
+    display:grid; grid-template-columns:repeat(auto-fill, minmax(150px, 1fr));
+    gap:14px;
   }
   .card{
-    background:var(--panel); border:1px solid var(--border); border-radius:14px;
-    padding:13px 15px; text-align:left; width:100%;
-    display:block;
+    background:var(--paper); border:1px solid var(--border); border-radius:8px;
+    padding:8px; cursor:pointer; box-shadow:0 1px 3px rgba(51,48,42,.10);
   }
-  .card:active{background:var(--panel2)}
-  .cardTop{display:flex; align-items:flex-start; gap:8px}
-  .cardTitle{
-    flex:1; font-size:16px; font-weight:700; line-height:1.4;
-    white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+  .card:active{transform:scale(.98)}
+  .card .thumbWrap{
+    width:100%; aspect-ratio:3/4; border-radius:4px; overflow:hidden;
+    background:var(--paper); border:1px solid rgba(51,48,42,.07);
+    display:flex; align-items:center; justify-content:center;
   }
-  .pinMark{font-size:13px; flex:0 0 auto}
-  .cardPreview{
-    margin-top:4px; font-size:13.5px; color:var(--sub); line-height:1.5;
-    display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden;
-    word-break:break-all; white-space:pre-wrap;
+  .card img.thumb{width:100%; height:100%; object-fit:cover; display:block}
+  .card .noThumb{color:var(--sub); font-size:12px}
+  .card .meta{
+    display:flex; align-items:center; justify-content:space-between;
+    margin-top:7px; font-size:12px; color:var(--sub);
   }
-  .cardDate{margin-top:7px; font-size:11.5px; color:var(--sub); opacity:.75}
-  .emptyMsg{
-    text-align:center; color:var(--sub); font-size:14.5px;
-    padding:48px 20px; line-height:1.7;
-  }
+  .card .pinMark{font-size:12px}
   #newBtn{
     position:fixed; left:16px; right:16px;
     bottom:calc(16px + env(safe-area-inset-bottom));
-    background:var(--accent); color:#231600;
-    font-size:17px; font-weight:700;
-    padding:15px 0; border-radius:14px;
-    box-shadow:0 6px 20px rgba(0,0,0,.4);
+    background:var(--accent); color:#fff; font-size:17px; font-weight:700;
+    padding:15px 0; border-radius:999px; box-shadow:0 4px 14px rgba(217,123,6,.40);
+    z-index:10;
   }
   #newBtn:active{opacity:.85}
 
   /* ---------- 編集 ---------- */
-  #editorView header{
-    padding:12px 12px 8px;
-    display:flex; align-items:center; gap:6px;
+  .topbar{
+    display:flex; align-items:center; gap:8px;
+    padding:10px 12px; flex-wrap:wrap;
   }
-  #backBtn{
-    font-size:15.5px; color:var(--accent); font-weight:600;
-    padding:8px 10px; border-radius:10px;
+  .topbar button{
+    font-size:14px; padding:8px 12px; border-radius:999px;
+    background:rgba(255,253,246,.85); border:1px solid var(--border);
   }
-  #backBtn:active{background:var(--panel2)}
-  .editorSpacer{flex:1}
-  #pinBtn{
-    font-size:13.5px; padding:8px 12px; border-radius:999px;
-    background:var(--panel); border:1px solid var(--border); color:var(--sub);
+  .topbar button:active{opacity:.7}
+  #backBtn{font-weight:700}
+  #saveStatus{flex:1; text-align:center; font-size:12.5px; color:var(--sub); min-width:70px}
+  #stage{
+    flex:1; min-height:0; display:flex; align-items:center; justify-content:center;
+    padding:4px 12px 8px;
   }
-  #pinBtn.on{color:var(--accent); border-color:var(--accent)}
-  #deleteBtn{
-    font-size:13.5px; padding:8px 12px; border-radius:999px;
-    background:var(--panel); border:1px solid var(--border); color:var(--danger);
+  #page{
+    background-color:var(--paper);
+    background-image:repeating-linear-gradient(to bottom,
+      transparent 0, transparent 33px, var(--line) 33px, var(--line) 34px);
+    background-position:0 12px;
+    border-radius:4px;
+    box-shadow:0 2px 10px rgba(51,48,42,.22), 0 0 0 1px rgba(51,48,42,.06);
+    flex:0 0 auto;
   }
-  #memoText{
-    flex:1; width:100%; resize:none; border:none; outline:none;
-    background:var(--panel2); color:var(--text);
-    font-family:inherit; font-size:16.5px; line-height:1.65;
-    padding:16px; margin:0 12px; border-radius:14px;
-    width:calc(100% - 24px);
+  #pad{display:block; width:100%; height:100%; touch-action:none; border-radius:4px}
+  .toolbar{
+    display:flex; align-items:center; gap:8px; flex-wrap:wrap;
+    padding:10px 12px calc(10px + env(safe-area-inset-bottom));
+    background:rgba(255,253,246,.65); border-top:1px solid var(--border);
   }
-  #memoText::placeholder{color:var(--sub)}
-  .editorFooter{
-    display:flex; justify-content:space-between; align-items:center;
-    padding:9px 20px 12px; font-size:12.5px; color:var(--sub);
-    min-height:36px;
+  .toolGroup{display:flex; align-items:center; gap:6px}
+  .toolSep{width:1px; height:26px; background:var(--border); margin:0 2px}
+  .swatch{
+    width:32px; height:32px; border-radius:50%;
+    border:2px solid rgba(51,48,42,.18); padding:0;
   }
-  #saveStatus{transition:opacity .3s}
+  .swatch.sel{box-shadow:0 0 0 2px var(--bg), 0 0 0 4.5px var(--accent)}
+  .toolBtn{
+    font-size:13.5px; padding:8px 11px; border-radius:999px;
+    background:var(--paper); border:1px solid var(--border);
+  }
+  .toolBtn.on{background:var(--accent); border-color:var(--accent); color:#fff; font-weight:700}
+  .toolBtn:active{opacity:.7}
+  #deleteBtn{color:var(--danger)}
 </style>
 </head>
 <body>
 
-  <!-- ===== 一覧ビュー ===== -->
-  <section id="listView" class="view">
+  <!-- 一覧ビュー -->
+  <div id="listView" class="view">
     <header>
-      <h1>メモ帳</h1>
+      <h1>メモパッド</h1>
       <span id="noteCount"></span>
     </header>
-    <div class="searchWrap">
-      <input id="searchInput" type="search" placeholder="メモを検索" autocomplete="off">
-    </div>
-    <div id="noteList"></div>
-    <button id="newBtn" type="button">＋ 新規メモ</button>
-  </section>
+    <main id="listMain">
+      <div id="emptyState" class="hidden">メモはまだありません<br>下のボタンから書いてみましょう</div>
+      <div id="cards"></div>
+    </main>
+    <button id="newBtn">＋ 新規メモ</button>
+  </div>
 
-  <!-- ===== 編集ビュー ===== -->
-  <section id="editorView" class="view hidden">
-    <header>
-      <button id="backBtn" type="button">← 一覧</button>
-      <div class="editorSpacer"></div>
-      <button id="pinBtn" type="button">📌 ピン留めする</button>
-      <button id="deleteBtn" type="button">削除</button>
-    </header>
-    <textarea id="memoText" placeholder="メモを入力…"></textarea>
-    <div class="editorFooter">
+  <!-- 編集ビュー -->
+  <div id="editorView" class="view hidden">
+    <div class="topbar">
+      <button id="backBtn">← 一覧</button>
       <span id="saveStatus"></span>
-      <span id="charCount">0文字</span>
+      <button id="undoBtn">⟲ もどす</button>
+      <button id="clearBtn">全消し</button>
     </div>
-  </section>
+    <div id="stage">
+      <div id="page"><canvas id="pad"></canvas></div>
+    </div>
+    <div class="toolbar">
+      <div class="toolGroup" id="colorGroup">
+        <button class="swatch sel" data-color="#20242a" style="background:#20242a" aria-label="黒"></button>
+        <button class="swatch" data-color="#1450c8" style="background:#1450c8" aria-label="青"></button>
+        <button class="swatch" data-color="#d42a2a" style="background:#d42a2a" aria-label="赤"></button>
+      </div>
+      <div class="toolSep"></div>
+      <div class="toolGroup" id="widthGroup">
+        <button class="toolBtn" data-w="2.5">細</button>
+        <button class="toolBtn on" data-w="4.5">中</button>
+        <button class="toolBtn" data-w="8">太</button>
+      </div>
+      <div class="toolSep"></div>
+      <div class="toolGroup">
+        <button class="toolBtn" id="eraserBtn">消しゴム</button>
+      </div>
+      <div class="toolSep"></div>
+      <div class="toolGroup">
+        <button class="toolBtn" id="pinBtn">📌 ピン留めする</button>
+        <button class="toolBtn" id="deleteBtn">削除</button>
+      </div>
+    </div>
+  </div>
 
 <script>
 'use strict';
-
-// ---------- 保存 ----------
-const STORAGE_KEY = 'memoApp.notes.v1';
+/* ================= データ ================= */
+const KEY = 'memoPad.notes.v1';
+const PAPER = '#fffdf6';
+const LINE_COLOR = 'rgba(120,110,85,0.20)';
 
 function loadNotes(){
   try{
-    const raw = localStorage.getItem(STORAGE_KEY);
+    const raw = localStorage.getItem(KEY);
     if (!raw) return [];
     const arr = JSON.parse(raw);
-    return Array.isArray(arr) ? arr : [];
-  }catch(e){
-    return [];
-  }
+    if (!Array.isArray(arr)) return [];
+    return arr.filter(n => n && typeof n === 'object' && Array.isArray(n.strokes));
+  }catch(e){ return []; }
 }
-function saveNotes(){
-  try{
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(notes));
-  }catch(e){ /* 保存容量超過などは無視 */ }
+function persist(){
+  try{ localStorage.setItem(KEY, JSON.stringify(notes)); }catch(e){ /* 容量超過などは無視 */ }
 }
-
 let notes = loadNotes();
-let currentId = null;      // 編集中のメモID
-let isNewNote = false;     // 新規作成直後かどうか（空のまま戻ったら破棄）
-let saveTimer = null;
 
-// ---------- DOM ----------
-const listView   = document.getElementById('listView');
-const editorView = document.getElementById('editorView');
-const noteList   = document.getElementById('noteList');
-const noteCount  = document.getElementById('noteCount');
-const searchInput= document.getElementById('searchInput');
-const memoText   = document.getElementById('memoText');
-const saveStatus = document.getElementById('saveStatus');
-const charCount  = document.getElementById('charCount');
-const pinBtn     = document.getElementById('pinBtn');
-
-// ---------- ユーティリティ ----------
-function newId(){
-  return Date.now().toString(36) + Math.random().toString(36).slice(2, 9);
-}
+function uid(){ return Date.now().toString(36) + Math.random().toString(36).slice(2, 8); }
 function fmtDate(ts){
   const d = new Date(ts);
-  const mm = d.getMonth() + 1;
-  const dd = d.getDate();
   const hh = String(d.getHours()).padStart(2, '0');
-  const mi = String(d.getMinutes()).padStart(2, '0');
-  return mm + '/' + dd + ' ' + hh + ':' + mi;
+  const mm = String(d.getMinutes()).padStart(2, '0');
+  return (d.getMonth() + 1) + '/' + d.getDate() + ' ' + hh + ':' + mm;
 }
-function getNote(id){
-  return notes.find(n => n.id === id) || null;
-}
-function splitTitleBody(text){
-  const lines = (text || '').split('\n');
-  const title = (lines[0] || '').trim();
-  const body = lines.slice(1).join('\n').trim();
-  return { title: title || '(無題)', body };
-}
+function findNote(id){ return notes.find(n => n.id === id) || null; }
 
-// ---------- 一覧描画 ----------
+/* ================= 一覧 ================= */
+const listView = document.getElementById('listView');
+const editorView = document.getElementById('editorView');
+const cardsEl = document.getElementById('cards');
+const emptyEl = document.getElementById('emptyState');
+const countEl = document.getElementById('noteCount');
+
 function renderList(){
-  const q = searchInput.value.trim().toLowerCase();
-  noteCount.textContent = notes.length ? notes.length + '件' : '';
-
-  const sorted = notes.slice().sort((a, b) => {
-    if (!!a.pinned !== !!b.pinned) return a.pinned ? -1 : 1;
-    return (b.updatedAt || 0) - (a.updatedAt || 0);
-  });
-  const filtered = q
-    ? sorted.filter(n => (n.text || '').toLowerCase().includes(q))
-    : sorted;
-
-  noteList.textContent = '';
-
-  if (!filtered.length){
-    const div = document.createElement('div');
-    div.className = 'emptyMsg';
-    div.textContent = q ? '見つかりませんでした' : 'メモはまだありません';
-    noteList.appendChild(div);
-    return;
-  }
-
-  for (const n of filtered){
-    const { title, body } = splitTitleBody(n.text);
-
-    const card = document.createElement('button');
-    card.type = 'button';
+  const sorted = notes.slice().sort((a, b) =>
+    (b.pinned ? 1 : 0) - (a.pinned ? 1 : 0) || b.updatedAt - a.updatedAt);
+  countEl.textContent = notes.length ? notes.length + '件' : '';
+  emptyEl.classList.toggle('hidden', notes.length > 0);
+  cardsEl.textContent = '';
+  for (const note of sorted){
+    const card = document.createElement('div');
     card.className = 'card';
-    card.addEventListener('click', () => openEditor(n.id, false));
-
-    const top = document.createElement('div');
-    top.className = 'cardTop';
-
-    const titleEl = document.createElement('div');
-    titleEl.className = 'cardTitle';
-    titleEl.textContent = title;
-    top.appendChild(titleEl);
-
-    if (n.pinned){
+    const wrap = document.createElement('div');
+    wrap.className = 'thumbWrap';
+    if (note.thumb){
+      const img = document.createElement('img');
+      img.className = 'thumb';
+      img.src = note.thumb;
+      img.alt = 'メモのサムネイル';
+      wrap.appendChild(img);
+    } else {
+      const span = document.createElement('span');
+      span.className = 'noThumb';
+      span.textContent = '（空白）';
+      wrap.appendChild(span);
+    }
+    const meta = document.createElement('div');
+    meta.className = 'meta';
+    const date = document.createElement('span');
+    date.textContent = fmtDate(note.updatedAt);
+    meta.appendChild(date);
+    if (note.pinned){
       const pin = document.createElement('span');
       pin.className = 'pinMark';
       pin.textContent = '📌';
-      top.appendChild(pin);
+      meta.appendChild(pin);
     }
-    card.appendChild(top);
-
-    if (body){
-      const prev = document.createElement('div');
-      prev.className = 'cardPreview';
-      prev.textContent = body;
-      card.appendChild(prev);
-    }
-
-    const date = document.createElement('div');
-    date.className = 'cardDate';
-    date.textContent = fmtDate(n.updatedAt || n.createdAt || Date.now());
-    card.appendChild(date);
-
-    noteList.appendChild(card);
+    card.appendChild(wrap);
+    card.appendChild(meta);
+    card.addEventListener('click', () => openEditor(note.id, false));
+    cardsEl.appendChild(card);
   }
 }
 
-// ---------- 編集 ----------
+/* ================= 編集 ================= */
+const stage = document.getElementById('stage');
+const page = document.getElementById('page');
+const canvas = document.getElementById('pad');
+const ctx = canvas.getContext('2d');
+const saveStatus = document.getElementById('saveStatus');
+const pinBtn = document.getElementById('pinBtn');
+
+let currentId = null;
+let currentIsNew = false;
+let pageW = 0;          // ページのCSSピクセル幅
+let dpr = 1;
+const tool = { color: '#20242a', width: 4.5, erase: false };
+
+function currentNote(){ return currentId ? findNote(currentId) : null; }
+
 function openEditor(id, isNew){
-  const note = getNote(id);
-  if (!note) return;
   currentId = id;
-  isNewNote = !!isNew;
-  memoText.value = note.text || '';
-  updatePinBtn();
-  updateCharCount();
+  currentIsNew = isNew;
   saveStatus.textContent = '';
+  updatePinBtn();
   listView.classList.add('hidden');
   editorView.classList.remove('hidden');
-  if (isNew){
-    // 新規メモはすぐ入力できるようフォーカス
-    setTimeout(() => memoText.focus(), 50);
-  }
+  requestAnimationFrame(() => { fitPage(); });
 }
-
-function closeEditor(){
-  if (saveTimer){ clearTimeout(saveTimer); saveTimer = null; }
-  const note = getNote(currentId);
-  if (note){
-    // 空のままの新規メモは静かに破棄
-    if (isNewNote && !(note.text || '').trim()){
-      notes = notes.filter(n => n.id !== currentId);
-      saveNotes();
-    } else {
-      // 戻る直前にも確実に保存
-      note.text = memoText.value;
-      saveNotes();
-    }
+function backToList(){
+  const note = currentNote();
+  if (note && currentIsNew && note.strokes.length === 0){
+    notes = notes.filter(n => n.id !== note.id);
+    persist();
   }
   currentId = null;
-  isNewNote = false;
+  currentIsNew = false;
   editorView.classList.add('hidden');
   listView.classList.remove('hidden');
   renderList();
 }
-
 function updatePinBtn(){
-  const note = getNote(currentId);
+  const note = currentNote();
   const pinned = !!(note && note.pinned);
   pinBtn.textContent = pinned ? '📌 ピン留め中' : '📌 ピン留めする';
   pinBtn.classList.toggle('on', pinned);
 }
 
-function updateCharCount(){
-  charCount.textContent = memoText.value.length + '文字';
+/* ---- ページのフィット＆再描画 ---- */
+function fitPage(){
+  if (editorView.classList.contains('hidden')) return;
+  const sw = stage.clientWidth - 24;
+  const sh = stage.clientHeight - 12;
+  if (sw <= 0 || sh <= 0) return;
+  const w = Math.max(120, Math.min(sw, 560, sh * 0.75));
+  pageW = w;
+  dpr = window.devicePixelRatio || 1;
+  page.style.width = w + 'px';
+  page.style.height = (w * 4 / 3) + 'px';
+  canvas.width = Math.round(w * dpr);
+  canvas.height = Math.round(w * 4 / 3 * dpr);
+  redrawAll();
 }
+window.addEventListener('resize', fitPage);
 
-function scheduleSave(){
-  if (saveTimer) clearTimeout(saveTimer);
-  saveTimer = setTimeout(() => {
-    saveTimer = null;
-    const note = getNote(currentId);
-    if (!note) return;
-    if (note.text !== memoText.value){
-      note.text = memoText.value;
-      note.updatedAt = Date.now();
+/* ---- ストローク描画（unit = 正規化1.0あたりのピクセル数） ---- */
+function strokePath(c, stroke, unit){
+  const pts = stroke.points;
+  if (!pts.length) return;
+  c.lineWidth = stroke.width * (unit / 360);
+  c.beginPath();
+  const x0 = pts[0][0] * unit, y0 = pts[0][1] * unit;
+  if (pts.length === 1){
+    c.moveTo(x0, y0);
+    c.lineTo(x0 + 0.01, y0 + 0.01);
+    return;
+  }
+  c.moveTo(x0, y0);
+  for (let i = 1; i < pts.length - 1; i++){
+    const mx = (pts[i][0] + pts[i + 1][0]) / 2 * unit;
+    const my = (pts[i][1] + pts[i + 1][1]) / 2 * unit;
+    c.quadraticCurveTo(pts[i][0] * unit, pts[i][1] * unit, mx, my);
+  }
+  const lx = pts[pts.length - 1][0] * unit, ly = pts[pts.length - 1][1] * unit;
+  c.lineTo(lx, ly);
+}
+function setupStrokeStyle(c, stroke, forThumb){
+  c.lineCap = 'round';
+  c.lineJoin = 'round';
+  if (stroke.erase){
+    if (forThumb){
+      c.globalCompositeOperation = 'source-over';
+      c.strokeStyle = PAPER;
+    } else {
+      c.globalCompositeOperation = 'destination-out';
+      c.strokeStyle = 'rgba(0,0,0,1)';
     }
-    saveNotes();
-    saveStatus.textContent = '保存しました';
-  }, 300);
+  } else {
+    c.globalCompositeOperation = 'source-over';
+    c.strokeStyle = stroke.color;
+  }
+}
+function redrawAll(){
+  const note = currentNote();
+  if (!note || !pageW) return;
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, pageW, pageW * 4 / 3);
+  for (const s of note.strokes){
+    setupStrokeStyle(ctx, s, false);
+    strokePath(ctx, s, pageW);
+    ctx.stroke();
+  }
+  ctx.globalCompositeOperation = 'source-over';
 }
 
-// ---------- イベント ----------
+/* ---- サムネイル生成（270×360） ---- */
+function makeThumb(note){
+  const off = document.createElement('canvas');
+  off.width = 270; off.height = 360;
+  const c = off.getContext('2d');
+  c.fillStyle = PAPER;
+  c.fillRect(0, 0, 270, 360);
+  c.strokeStyle = LINE_COLOR;
+  c.lineWidth = 1;
+  c.beginPath();
+  for (let y = 30; y < 360; y += 30){ c.moveTo(0, y + 0.5); c.lineTo(270, y + 0.5); }
+  c.stroke();
+  for (const s of note.strokes){
+    setupStrokeStyle(c, s, true);
+    strokePath(c, s, 270);
+    c.stroke();
+  }
+  c.globalCompositeOperation = 'source-over';
+  try{ return off.toDataURL('image/jpeg', 0.85); }catch(e){ return ''; }
+}
+
+/* ---- 保存 ---- */
+function saveCurrent(){
+  const note = currentNote();
+  if (!note) return;
+  note.updatedAt = Date.now();
+  note.thumb = makeThumb(note);
+  persist();
+  saveStatus.textContent = '保存しました';
+}
+
+/* ---- 手書き入力 ---- */
+let drawing = false;
+let curStroke = null;
+let lastMid = null;   // 直前に描いた二次曲線の終端（正規化座標）
+
+function toNorm(e){
+  const r = canvas.getBoundingClientRect();
+  return [ (e.clientX - r.left) / r.width, (e.clientY - r.top) / r.width ];
+}
+function pressureFactor(e){
+  return (e.pressure && e.pressure > 0) ? (0.5 + 0.8 * e.pressure) : 1;
+}
+function applyLiveStyle(stroke, e){
+  setupStrokeStyle(ctx, stroke, false);
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.lineWidth = stroke.width * (pageW / 360) * pressureFactor(e);
+}
+canvas.addEventListener('pointerdown', e => {
+  const note = currentNote();
+  if (!note || drawing) return;
+  if (e.button !== undefined && e.button > 0) return;
+  e.preventDefault();
+  try{ canvas.setPointerCapture(e.pointerId); }catch(err){ /* noop */ }
+  drawing = true;
+  const p = toNorm(e);
+  curStroke = { color: tool.color, width: tool.width, erase: tool.erase, points: [p] };
+  lastMid = p;
+  applyLiveStyle(curStroke, e);
+  ctx.beginPath();
+  ctx.moveTo(p[0] * pageW, p[1] * pageW);
+  ctx.lineTo(p[0] * pageW + 0.01, p[1] * pageW + 0.01);
+  ctx.stroke();
+});
+canvas.addEventListener('pointermove', e => {
+  if (!drawing || !curStroke) return;
+  e.preventDefault();
+  const p = toNorm(e);
+  const pts = curStroke.points;
+  const last = pts[pts.length - 1];
+  const dx = p[0] - last[0], dy = p[1] - last[1];
+  if (Math.hypot(dx, dy) < 0.003) return;
+  pts.push(p);
+  const mid = [ (last[0] + p[0]) / 2, (last[1] + p[1]) / 2 ];
+  applyLiveStyle(curStroke, e);
+  ctx.beginPath();
+  ctx.moveTo(lastMid[0] * pageW, lastMid[1] * pageW);
+  ctx.quadraticCurveTo(last[0] * pageW, last[1] * pageW, mid[0] * pageW, mid[1] * pageW);
+  ctx.stroke();
+  lastMid = mid;
+});
+function endStroke(){
+  if (!drawing) return;
+  drawing = false;
+  const note = currentNote();
+  if (note && curStroke && curStroke.points.length){
+    note.strokes.push(curStroke);
+    saveCurrent();
+    redrawAll();   // 筆圧つきライブ描画を基準太さの再描画にそろえる
+  }
+  curStroke = null;
+  lastMid = null;
+}
+canvas.addEventListener('pointerup', endStroke);
+canvas.addEventListener('pointercancel', endStroke);
+canvas.addEventListener('contextmenu', e => e.preventDefault());
+
+/* ---- ツールバー ---- */
+document.getElementById('colorGroup').addEventListener('click', e => {
+  const b = e.target.closest('.swatch');
+  if (!b) return;
+  tool.color = b.dataset.color;
+  tool.erase = false;
+  document.getElementById('eraserBtn').classList.remove('on');
+  for (const s of document.querySelectorAll('#colorGroup .swatch'))
+    s.classList.toggle('sel', s === b);
+});
+document.getElementById('widthGroup').addEventListener('click', e => {
+  const b = e.target.closest('[data-w]');
+  if (!b) return;
+  tool.width = parseFloat(b.dataset.w);
+  for (const s of document.querySelectorAll('#widthGroup .toolBtn'))
+    s.classList.toggle('on', s === b);
+});
+document.getElementById('eraserBtn').addEventListener('click', e => {
+  tool.erase = !tool.erase;
+  e.currentTarget.classList.toggle('on', tool.erase);
+});
+pinBtn.addEventListener('click', () => {
+  const note = currentNote();
+  if (!note) return;
+  note.pinned = !note.pinned;
+  updatePinBtn();
+  saveCurrent();
+});
+document.getElementById('deleteBtn').addEventListener('click', () => {
+  const note = currentNote();
+  if (!note) return;
+  if (!confirm('このメモを削除しますか？')) return;
+  notes = notes.filter(n => n.id !== note.id);
+  persist();
+  currentIsNew = false;
+  backToList();
+});
+
+/* ---- 上部バー ---- */
+document.getElementById('backBtn').addEventListener('click', backToList);
+document.getElementById('undoBtn').addEventListener('click', () => {
+  const note = currentNote();
+  if (!note || !note.strokes.length) return;
+  note.strokes.pop();
+  redrawAll();
+  saveCurrent();
+});
+document.getElementById('clearBtn').addEventListener('click', () => {
+  const note = currentNote();
+  if (!note || !note.strokes.length) return;
+  if (!confirm('書いた内容を全て消しますか？')) return;
+  note.strokes = [];
+  redrawAll();
+  saveCurrent();
+});
+
+/* ---- 新規作成 ---- */
 document.getElementById('newBtn').addEventListener('click', () => {
   const now = Date.now();
-  const note = { id: newId(), text: '', pinned: false, createdAt: now, updatedAt: now };
+  const note = { id: uid(), strokes: [], pinned: false, createdAt: now, updatedAt: now, thumb: '' };
   notes.push(note);
-  saveNotes();
   openEditor(note.id, true);
 });
 
-searchInput.addEventListener('input', renderList);
-
-memoText.addEventListener('input', () => {
-  saveStatus.textContent = '';
-  updateCharCount();
-  scheduleSave();
-});
-
-pinBtn.addEventListener('click', () => {
-  const note = getNote(currentId);
-  if (!note) return;
-  note.pinned = !note.pinned;
-  note.updatedAt = Date.now();
-  saveNotes();
-  updatePinBtn();
-});
-
-document.getElementById('deleteBtn').addEventListener('click', () => {
-  if (!currentId) return;
-  if (!confirm('このメモを削除しますか？')) return;
-  if (saveTimer){ clearTimeout(saveTimer); saveTimer = null; }
-  notes = notes.filter(n => n.id !== currentId);
-  saveNotes();
-  currentId = null;
-  isNewNote = false;
-  editorView.classList.add('hidden');
-  listView.classList.remove('hidden');
-  renderList();
-});
-
-document.getElementById('backBtn').addEventListener('click', closeEditor);
-
-// ---------- 初期表示 ----------
 renderList();
 </script>
 </body>
