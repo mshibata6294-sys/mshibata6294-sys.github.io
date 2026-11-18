@@ -81,8 +81,8 @@
   /* レイヤー凡例（粒子の色） */
   .layerLegend{display:flex; gap:16px; align-items:center; font-size:12px; color:var(--sub)}
   .lgDash{display:inline-block; width:18px; height:3px; border-radius:2px; vertical-align:middle; margin-right:5px}
-  .lgCur{background:#cdebff}
-  .lgWind{background:#ffe0a6}
+  .lgCur{background:#a0dcff}
+  .lgWind{background:#ffcd6e}
   /* トグル行 */
   .chk{font-size:13px; display:flex; align-items:center; gap:6px}
   .chk input{width:17px; height:17px; accent-color:var(--accent)}
@@ -511,27 +511,45 @@ function onHourChanged(){
 // ---- 流れの粒子アニメーション（Windy風：海流と風の2レイヤーを重ねて表示。短い線分で描く） ----
 const P_COUNT_CUR = 300, P_COUNT_WIND = 250;
 let particlesCur = [], particlesWind = [];
-function spawnPos(){
+// ---- 陸地マスク（SRTM標高データから作成した0.01度格子。陸=1。海流の粒子を陸地に出さないために使う） ----
+const LAND = { lat0:33.10, lon0:135.30, d:0.01, rows:200, cols:245, bits:null };
+{
+  const bin = atob('AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAMAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAACALwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA8BwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAPgPAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAID/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAIDvAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAID/HwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAMD//x8AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAMD///8HAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAID/////BwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD4/////wMAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAADQ//////8BAAAAAAAAAAAAAAAAAAAAAAAAAAAAAACA//////9/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA8P//////DwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAwP///////w8AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAP7///////8DAAAAAAAAAAAAAAAAAAAAAAAAAAAAAMD///////8/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD4////////BwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA////////fwEAAAAAAAAAAAAAAAAAAAAAAAAAAAAA4P///////z8AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAPz///////8DAAAAAAAAAAAAAAAAAAAAAAAAAAAAAED///////9/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD//////////wAAAAAAAAAAAAAAAAAAAAAAAAAAAAD4/////////x8AAAAAAAAAAAAAAAAAAAAAAAAAAAAA//////////8AAAAAAAAAAAAAAAAAAAAAAAAAAAAAwP////////9/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAJz/////////HwAAAAAAAAAAAAAAAAAAAAAAAAAAAADw/////////wMAAAAAAAAAAAAAAAAAAAAAAAAAAAAA/P////////8AAAAAAAAAAAAAAAAAAAAAAAAAAAAAwP////////8eAAAAAAAAAAAAAAAAAAAAAAAAAAAAAP//////////BwAAAAAAAAAAAAAAAAAAAAAAAAAAAPD//////////wAAAAAAAAAAAAAAAAAAAAAAAAAAAMD//////////z8AAAAAAAAAAAAAAAAAAAAAAAAAAADw//////////8HAAAAAAAAAAAAAAAAAAAAAAAAAACA////////////AAAAAAAAAAAAAAAAAAAAAAAAAAAA8P//////////PwAAAAAAAAAAAAAAAAAAAAAAAAAAAP7//////////wcAAAAAAAAAAAAAAAAAAAAAAAAAAMD///////////8BAAAAAAAAAAAAAAAAAAAAAAAAAAD4//////////9/AAAAAAAAAAAAAAAAAAAAAAAAAAAA////////////CwAAAAAAAAAAAAAAAAAAAAAAAAAA4P///////////wMAAAAAAAAAAAAAAAAAAAAAAAAAAPz//////////38AAAAAAAAAAAAAAAAAAAAAAAAAAID///////////8fAAAAAAAAAAAAAAAAAAAAAAAAAADw////////////AwAAAAAAAAAAAAAAAAAAAAAAAAAA/v///////////wAAAAAAAAAAAAAAAAAAAAAAAAAAwP///////////z8AAAAAAAAAAAAAAAAAAAAAAAAAAPj/////////////AAAAAAAAAAAAAAAAAAAAAAAAAAD/////////////HwAAAAAAAAAAAAAAAAAAAAAAAADg/////////////zMAAAAAAAAAAAAAAAAAAAAAAAAA/P////////////8PAAAAAAAAAAAAAAAAAAAAAAAAgP//////////////BQAAAAAAAAAAAAAAAAAAAAAAAPD//////////////wEAAAAAAAAAAAAAAAAAAAAAAAD+/////////////z8AAAAAAAAAAAAAAAAAAAAAAADA//////////////8nAAAAAAAAAAAAAAAAAAAAAAAA+P////////////9/DwAAAAAAAAAAAAAAAAAAAAAAAP//////////////7wMAAAAAAAAAAAAAAAAAAAAAAOD//////////////z8AAAAAAAAAAAAAAAAAAAAAAAD8//////////////8LAAAAAAAAAAAAAAAAAAAAAACA////////////////AQAAAAAAAAAAAAAAAAAAAAAA8P//////////////PwAAAAAAAAAAAAAAAAAAAAAAAP7//////////////wEAAAAAAAAAAAAAAAAAAAAAAMD//////////////w8AAAAAAAAAAAAAAAAAAAAAAAD4//////////////8DAAAAAAAAAAAAAAAAAAAAAAAA//////////////9/AAAAAAAAAAAAAAAAAAAAAAAA4P//////////////AAAAAAAAAAAAAAAAAAAAAAAAAPz//////////////ygAAAAAAAAAAAAAAAAAAAAAAID//////////////88PAAAAAAAAAAAAAAAAAAAAAADw////////////////AQAAAAAAAAAAAAAAAAAAAAAA/v//////////////fwAAAAAAAAAAAAAAAAAAAAAAwP///////////////wMAAAAAAAAAAAAAAAAAAAAAAPj//////////////x8AAAAAAAAAAAAAAAAAAAAAAAD///////////////8HBAAAAAAAAAAAAAAAAAAAAADg//////////////9/gAAAAAAAAAAAAAAAAAAAAAAA/P//////////////fwEAAAAAAAAAAAAAAAAAAAAAgP///////////////w8AAAAAAAAAAAAAAAAAAAAAAPD///////////////8PAAAAAAAAAAAAAAAAAAAAAAD+////////////////HwAAAAAAAAAAAAAAAAAAAADA/////////////////x8AAAAAAAAAAAAAAAAAAAAA+P////////////////8PAAAAAAAAAAAAAAAAAAAAAP//////////////////7wAAAAAAAAAAAAAAAAAAAOD//////////////////z8AAAAAAAAAAAAAAAAAAAD8///////////////////PAAAAEAAAAAAAAAAAAACA////////////////////CAEA8AMAAAAAAAAAAAAA8P///////////////////3MAwN8BAAAAAAAAAAAAAP7//////////////////39/APj/AQAAAAAAAAAAAMD////////////////////vPwBAPwAAAAAAAAAAAAD4/////////////////////+fpdwcAAAAAAAAAAAAA///////////////////////9/38AAAAAAAAAAAAA4P////////////////////9//94HAAAAAAAAAAAAAPz///////////////////////8/AAAAAAAAAAAAAID///////////////////////f/HwAAAAAAAAAAAADw/////////////////////////wMAAAAAAAAAAAAA/v////////////////////////sBAAAAAAAAAAAAwP///////////////////////99/AAAAAAAAAAAAAPj////////////////////////9HQAAAAAAAAAAAAD//////////////////////////wMAAAAAAAAAAADg/////////////////////////x8AAAAAAAAAAAAA/P////////////////////////8PAAAAAAAAAAAAgP//////////////////////////AwAAAAAAAAAAAOD/////////////////////////fwAAAAAAAAAAAAD4/////////////////////////w8AAAAAAAAAAAAA/P////////////////////////8BAAAAAAAAAAAAQP////////////////////////8fAAAAAAAAAAAAAOD///////////////////////8/AAAAAAAAAAAAAAD4////////////////////////DwAAAAAAAAAAAAAA/v//////////////////////6wMAAAAAAAAAAAAAwP/////////////////////f9vMAAAAAAAAAAAAAANj/////////////////////9x8fAAAAAAAAAAAAAADy////////////////////LwjyAQAAAAAAAAAAAACA/////////////////////yAAdAAAAAAAAAAAAAAA4P///////////////////z8BAAwAAAAAAAAAAAAAAPz///////////////////8xAACAAQAAAAAAAAAAAAD///////////////////9HAgAAAAAAAAAAAAAAAADg//////////////////9+AgAAAAAAAAAAAAAAAAAA+P////////////////+fVwMAAAAAAAAAAAAAAAAAQP//////////////////0AAAAAAAHxgAAAAAAAAAADj/////////////////fwAAAAAAgP8PAAAAAAAAAAD0////////////////fwgAAAAAAGj/BwAAAAAAAADg8////////////////0cDAAAAAAD4/w8AAAAAAAAAuP///////////////38AAAAAAAAA//8fAAAAAAAAgN////////////////9/AAAAAAAAMP//HwAAAAAAAO7/////////////////RwAAAAAAAGz//z8AAAAAAID9////////////////fw0AAAAAAAAB/v//AwAAAADg+////////////////x8BAAAAAAAAgP///wEAAOAAcPv///////////////9zAAAAAAAIAIC/////gb0roLj/////////////////AAAAAAAAAACA3/3//+T9B3/z//L/////////////DwAAAAAAAAAAwMf///+f/tGd/////////////////wMAAAAAeAQAALD6//+H/v814/////////////////sAAAAAwA8IAIAUz/9/7P///+n///////////////8PAAAAAP+BAgCAG///h/3///P+////////////////AgAAAPA/AAAAAMD//9D///+/////////////////XwAAAID/AQAAAAD4/wv+/////////////////////wEAAADwDwAAAACA//9D/////////////////////38AAAAA/wEAAAIA8v9/8/////////////////////9fAAAA4B8AIMAAAP//b/z/////////////////////PwAAAPADwNofAvb3//38/////////////////////wcAAAB/AMH/AwD//7/f///////9/////////////38AAADgD2D4f2D8////5/////////////////////8PAAAA+AGo/7///////+//////////////////////BQAAAH8guv//////////////////////////////vwQAAPCP8P3///////////////////////////////8AAAD8Ecb///////////////////////////////8/AACAf8b7////////////////////////////////DwAA8Mv+////////////////////////////////fwIAgP9T/f///////////////////////////////38AAPj//P////////////////////////////////8bAID/p9f/////////////////////////////////BgDw//3/////////////////////////////////vwAA/v/f/////////////////////////////////xsAwP////////////////////////////////////8FAOD///////////////////////////////////+vAAD8f///////////////////////////////////DQDA/////////////////////////////////////wEA/P///////////////////////////////////68AAP9//v////////////////////////////////8tAOD///////////////////////////////////8/AwD4//z/////////////////////////////////XwMg87///////////////////////////////////18AwP7n//////////////////////////////////8RuPH//f////////////////////////////////8/APX+////////////////////////////////////T8D9////////////////////////////////////fxnyTv////////////////////////////////////8A7Jb///////////////////////////////////8/ALDz////////////////////////////////////g8Bi////////////////////////////////////HwBi7f////////////8=');
+  LAND.bits = new Uint8Array(bin.length);
+  for (let k=0; k<bin.length; k++) LAND.bits[k] = bin.charCodeAt(k);
+}
+function isLand(lat, lon){
+  const r = Math.floor((lat - LAND.lat0) / LAND.d), c = Math.floor((lon - LAND.lon0) / LAND.d);
+  if (r < 0 || c < 0 || r >= LAND.rows || c >= LAND.cols) return false;
+  const idx = r * LAND.cols + c;
+  return ((LAND.bits[idx >> 3] >> (idx & 7)) & 1) === 1;
+}
+function spawnPos(waterOnly){
   const b = map.getBounds();
   const latMin = Math.max(b.getSouth(), 33.15), latMax = Math.min(b.getNorth(), 35.0);
   const lonMin = Math.max(b.getWest(), 135.35), lonMax = Math.min(b.getEast(), 137.65);
   if (latMax <= latMin || lonMax <= lonMin) return { lat:34.3, lon:136.6 };
-  return { lat: latMin + Math.random()*(latMax-latMin), lon: lonMin + Math.random()*(lonMax-lonMin) };
+  let pos = { lat: latMin + Math.random()*(latMax-latMin), lon: lonMin + Math.random()*(lonMax-lonMin) };
+  if (waterOnly){   // 海流の粒子は陸地を避けて発生させる
+    for (let t=0; t<25 && isLand(pos.lat, pos.lon); t++)
+      pos = { lat: latMin + Math.random()*(latMax-latMin), lon: lonMin + Math.random()*(lonMax-lonMin) };
+  }
+  return pos;
 }
-function newParticle(){
-  const p = spawnPos();
+function newParticle(kind){
+  const p = spawnPos(kind === 'cur');
   // prevLat/prevLon = 描画線分の始点（前ステップ位置）。リスポーン直後は現在位置と同じにして線を引かない
   return { lat:p.lat, lon:p.lon, prevLat:p.lat, prevLon:p.lon, age:0, maxAge:70 + Math.random()*90, still:0 };
 }
 function startParticles(){
   if (!particlesCur.length)
-    for (let k=0; k<P_COUNT_CUR; k++){ const p = newParticle(); p.age = Math.random()*p.maxAge; particlesCur.push(p); }
+    for (let k=0; k<P_COUNT_CUR; k++){ const p = newParticle('cur'); p.age = Math.random()*p.maxAge; particlesCur.push(p); }
   if (!particlesWind.length)
-    for (let k=0; k<P_COUNT_WIND; k++){ const p = newParticle(); p.age = Math.random()*p.maxAge; particlesWind.push(p); }
+    for (let k=0; k<P_COUNT_WIND; k++){ const p = newParticle('wind'); p.age = Math.random()*p.maxAge; particlesWind.push(p); }
 }
 function stepParticles(ps, kind){
   const i = state.hourIdx;
-  const dtSec = 480;   // 1ステップで進めるシミュレーション時間（秒）。描画を30fpsに間引く分、2倍にして見た目の速さを維持
+  const dtSec = kind === 'wind' ? 60 : 480;   // 1ステップで進めるシミュレーション時間（秒）。風はゆっくり流すため小さくする
   for (const p of ps){
     p.prevLat = p.lat; p.prevLon = p.lon;
     const v = sampleField(p.lat, p.lon, i, kind);
@@ -540,22 +558,24 @@ function stepParticles(ps, kind){
     const ms = kind === 'wind' ? v : { x:v.x*0.5144, y:v.y*0.5144 };
     p.lat += (ms.y * dtSec) / 110540;
     p.lon += (ms.x * dtSec) / (111320 * Math.cos(rad(p.lat)));
+    if (kind === 'cur' && isLand(p.lat, p.lon)){ Object.assign(p, newParticle(kind)); continue; }   // 海流の粒子は陸地に入ったら消す
     p.age += 2;   // ステップ頻度が半分になる分、加齢も2倍にして寿命（実時間）を維持
     if (spd < 0.05) p.still++; else p.still = 0;
     if (p.age > p.maxAge || p.still > 45 || p.lat < 33.1 || p.lat > 35.05 || p.lon < 135.3 || p.lon > 137.7){
-      Object.assign(p, newParticle());
+      Object.assign(p, newParticle(kind));
     }
   }
 }
-// レイヤーごとの固定色（Windy風の淡い線）：海流=淡い水色、風=淡い黄色
-const LAYER_COLORS = { cur:'rgba(205,235,255,0.85)', wind:'rgba(255,224,166,0.85)' };
+// レイヤーごとの固定色：海流=水色、風=黄色（濃いめにして見やすく）
+const LAYER_COLORS = { cur:'rgba(160,220,255,0.95)', wind:'rgba(255,205,110,0.95)' };
 function drawParticles(){
-  ctx.lineCap = 'round'; ctx.lineJoin = 'round'; ctx.lineWidth = 1.6;
+  ctx.lineCap = 'round'; ctx.lineJoin = 'round'; ctx.lineWidth = 2.0;
   // レイヤーごとに1パスへまとめて stroke（最大2回）。各粒子は前位置→現位置の短い線分のみ
   for (const [ps, kind] of [[particlesCur, 'cur'], [particlesWind, 'wind']]){
     if (!state.layers[kind] || !ps.length) continue;
     ctx.beginPath();
     for (const p of ps){
+      if (kind === 'cur' && isLand((p.prevLat+p.lat)/2, (p.prevLon+p.lon)/2)) continue;   // 陸地にかかる海流の線は描かない
       const a = map.latLngToContainerPoint([p.prevLat, p.prevLon]);
       const b = map.latLngToContainerPoint([p.lat, p.lon]);
       ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y);
